@@ -1,0 +1,117 @@
+# =============================================================================
+# MASTER PROFILE  —  the single source of truth for the whole tool.
+#
+# Copy this file to  config/profile.yaml  and fill it in with YOUR real details.
+# (profile.yaml is gitignored so your personal data never gets committed.)
+#
+# IMPORTANT: the resume tailoring step is only ever allowed to SELECT, REORDER,
+# and REWORD facts that exist in this file. It is instructed never to invent
+# employers, titles, dates, metrics, or skills. So: be complete and truthful
+# here, and the output stays truthful.
+# =============================================================================
+
+identity:
+  full_name: "Jane Doe"
+  email: "jane.doe@example.com"
+  phone: "+1 555 123 4567"
+  city_state: "Remote (US)"
+  linkedin_url: "https://www.linkedin.com/in/janedoe"
+  portfolio_url: "https://janedoe.dev"
+  work_authorization_status: "Authorized to work in the US (no sponsorship required)"
+  requires_sponsorship: false
+  willing_to_relocate: false
+  earliest_start_date: "2 weeks' notice"
+  notice_period: "2 weeks"
+
+compensation:
+  desired_salary_min: 120000
+  desired_salary_max: 160000
+  currency: "USD"
+  salary_negotiable: true
+
+# One short, factual professional summary. The tailor may reword this per job.
+summary: >
+  Backend engineer with 6 years building reliable Python services and data
+  pipelines. Comfortable owning features end to end, from API design through
+  deployment and on-call.
+
+# Reverse-chronological. achievements[] are the raw material the tailor selects
+# from — write them as: action verb + what you did + a quantified result.
+# Mark a metric verified: true only if you can defend the exact number.
+work_history:
+  - company: "Acme Cloud"
+    title: "Senior Software Engineer"
+    location: "Remote"
+    start_date: "2021-03"
+    end_date: "Present"
+    employment_type: "Full-time"
+    summary: "Owned the billing and usage-metering services."
+    achievements:
+      - text: "Rebuilt the usage-metering pipeline, cutting nightly batch time from 6h to 40min."
+        skills_used: ["Python", "PostgreSQL", "Airflow", "AWS"]
+        verified: true
+      - text: "Designed and shipped a self-serve billing API used by 12k customers."
+        skills_used: ["Python", "FastAPI", "Stripe", "REST"]
+        verified: true
+      - text: "Reduced on-call pages ~35% by adding idempotency and retry logic to job runners."
+        skills_used: ["Python", "observability", "distributed-systems"]
+        verified: true
+  - company: "Beta Analytics"
+    title: "Software Engineer"
+    location: "Austin, TX"
+    start_date: "2019-01"
+    end_date: "2021-02"
+    employment_type: "Full-time"
+    summary: "Built internal data tooling for the analytics team."
+    achievements:
+      - text: "Created an ETL framework adopted by 4 teams, replacing ad-hoc cron scripts."
+        skills_used: ["Python", "ETL", "Docker"]
+        verified: true
+      - text: "Added a caching layer that cut dashboard load times ~60%."
+        skills_used: ["Redis", "Python", "performance"]
+        verified: true
+
+education:
+  - institution: "State University"
+    degree: "B.S."
+    field: "Computer Science"
+    grad_date: "2018-05"
+    gpa: null
+
+skills:
+  hard_skills:
+    - { name: "Python", years: 6, proficiency: "expert" }
+    - { name: "FastAPI", years: 4, proficiency: "advanced" }
+    - { name: "PostgreSQL", years: 6, proficiency: "advanced" }
+    - { name: "AWS", years: 5, proficiency: "advanced" }
+    - { name: "Docker", years: 5, proficiency: "advanced" }
+    - { name: "REST APIs", years: 6, proficiency: "expert" }
+    - { name: "Airflow", years: 3, proficiency: "intermediate" }
+    - { name: "Redis", years: 4, proficiency: "advanced" }
+  soft_skills: ["ownership", "mentoring", "written communication"]
+  certifications: []
+  languages: ["English (native)"]
+
+# Voluntary self-ID. Always optional, confidential, and not seen by decision
+# makers. Defaults are "decline"; change only if you choose to disclose.
+eeo:
+  race_ethnicity: "decline to self-identify"
+  gender: "decline to self-identify"
+  veteran_status: "decline to self-identify"
+  disability_status: "decline to self-identify"
+
+# Reusable answers to the free-text questions that show up over and over.
+# {company} and {role} are filled in per application.
+qa_bank:
+  why_this_company: >
+    I'm drawn to {company} because the work on {role} lines up closely with
+    what I've enjoyed most — owning reliable backend systems end to end.
+  why_leaving: >
+    I'm looking for a role with more ownership over system design and a remote-
+    first culture.
+  greatest_strength: >
+    Turning fragile, manual processes into reliable automated ones, then keeping
+    them observable so they stay reliable.
+  salary_rationale: >
+    Based on my 6 years of backend experience and the scope of this role, I'm
+    targeting the 120k–160k range and am open to discussing the full package.

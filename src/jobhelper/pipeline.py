@@ -1,0 +1,196 @@
+"""The daily pipeline: source -> dedupe -> filter -> score -> select -> tailor -> digest.
+
+Each stage is gated on the status state machine and safe to re-run. Per-job errors
+are isolated (the row is marked 'error' and the batch continues).
+"""
+from __future__ import annotations
+
+import re
+from datetime import datetime, timezone
+
+from . import db
+from .config import (has_anthropic, load_criteria, load_env, load_profile,
+                     load_sources, profile_comparison_text)
+from .digest import render_digest
+from .llm import LLM
+from .rank import Judge, Scorer, passes
+from .sources import build_sources
+from .tailor import (build_resume, cover_letter, screening_answers,
+                     tailor_resume)
+from .util import RESUME_DIR, get_logger
+
+log = get_logger()
+
+
+def _safe(text: str, n: int = 48) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", text or "").strip("_")[:n] or "job"
+
+
+def _select_diverse(cands: list, target: int, max_per_company: int) -> list:
+    """Pick up to `target` proposals, at most `max_per_company` from any one company.
+
+    Candidates must already be sorted best-first. Pass 1 enforces the per-company
+    cap to spread across employers; if that leaves us short of `target` (too few
+    distinct companies), pass 2 fills the remainder with the next-best regardless
+    of the cap, so we still surface a full day's worth.
+    """
+    def company(r):
+        return (r["company"] or "").strip().lower()
+
+    chosen, counts = [], {}
+    for r in cands:                                   # pass 1: respect the cap
+        if len(chosen) >= target:
+            break
+        c = company(r)
+        if counts.get(c, 0) < max(1, max_per_company):
+            chosen.append(r)
+            counts[c] = counts.get(c, 0) + 1
+    if len(chosen) < target:                          # pass 2: fill the gap
+        picked = {r["id"] for r in chosen}
+        for r in cands:
+            if len(chosen) >= target:
+                break
+            if r["id"] not in picked:
+                chosen.append(r)
+    return chosen
+
+
+def run(use_cache: bool = False) -> dict:
+    load_env()
+    profile = load_profile()
+    criteria = load_criteria()
+    sources_cfg = load_sources()
+
+    conn = db.connect()
+    db.init_db(conn)
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    db.start_run(conn, run_id)
+    counts = {"sourced": 0, "new_jobs": 0, "filtered": 0, "scored": 0,
+              "proposed": 0, "errors": 0}
+
+    # ---- 1. SOURCE + 2. DEDUPE ----
+    for source in build_sources(sources_cfg, use_cache=use_cache):
+        try:
+            jobs = source.fetch()
+        except Exception as exc:
+            log.error("source %s failed: %s", source.name, exc)
+            counts["errors"] += 1
+            continue
+        for raw in jobs:
+            counts["sourced"] += 1
+            try:
+                if db.insert_job(conn, raw):
+                    counts["new_jobs"] += 1
+            except Exception as exc:
+                log.warning("insert failed: %s", exc)
+        conn.commit()
+    log.info("sourced=%d new=%d", counts["sourced"], counts["new_jobs"])
+
+    # ---- 3. HARD FILTER ----
+    for row in db.jobs_by_status(conn, "new"):
+        ok, reason = passes(dict(row), criteria)
+        if ok:
+            db.update_job(conn, row["id"], status="ranked")
+        else:
+            counts["filtered"] += 1
+            db.update_job(conn, row["id"], status="filtered_out", status_reason=reason)
+    conn.commit()
+    log.info("filtered_out=%d", counts["filtered"])
+
+    # ---- 4. SCORE (embeddings/lexical recall, then optional LLM judge) ----
+    scorer = Scorer(profile_comparison_text(profile),
+                    prefer=criteria.get("scoring", "auto"))
+    pool = db.jobs_by_status(conn, "ranked", "scored")
+    for row in pool:
+        if row["embed_score"] is None:
+            s = scorer.score(row["description_clean"] or row["title"] or "")
+            db.update_job(conn, row["id"], embed_score=s)
+    conn.commit()
+
+    llm = LLM()
+    judge = Judge(llm, criteria.get("judge_model", "claude-sonnet-4-6"),
+                  profile, criteria) if has_anthropic() else None
+    llm_on = bool(judge and judge.available)
+
+    if llm_on:
+        shortlist_n = int(criteria.get("llm_shortlist", 15))
+        pool = db.jobs_by_status(conn, "ranked", "scored")
+        shortlist = sorted(
+            [r for r in pool if r["llm_score"] is None],
+            key=lambda r: r["embed_score"] or 0, reverse=True,
+        )[:shortlist_n]
+        for row in shortlist:
+            try:
+                res = judge.score(dict(row))
+            except Exception as exc:
+                log.warning("judge failed for %s: %s", row["id"], exc)
+                res = None
+            if res:
+                counts["scored"] += 1
+                db.update_job(
+                    conn, row["id"], status="scored",
+                    llm_score=int(res.get("fit_score", 0)),
+                    llm_musthaves_met=res.get("musthaves_met", []),
+                    llm_missing=res.get("missing", []),
+                    llm_rationale=res.get("rationale", ""),
+                )
+        conn.commit()
+
+    # ---- 5. SELECT today's proposals ----
+    target = int(criteria.get("daily_target", 4))
+    min_score = int(criteria.get("min_score", 55))
+    max_per_company = int(criteria.get("max_per_company", 1))
+    pool = db.jobs_by_status(conn, "ranked", "scored")
+    if llm_on:
+        cands = [r for r in pool if r["llm_score"] is not None
+                 and r["llm_score"] >= min_score]
+        cands.sort(key=lambda r: r["llm_score"], reverse=True)
+    else:
+        # Lexical scores are relative, not absolute — rank and take the top N.
+        cands = sorted(pool, key=lambda r: r["embed_score"] or 0, reverse=True)
+    proposals = _select_diverse(cands, target, max_per_company)
+    for row in proposals:
+        db.update_job(conn, row["id"], status="proposed", proposed_in_run_id=run_id)
+    conn.commit()
+    counts["proposed"] = len(proposals)
+    log.info("proposed=%d (llm=%s)", len(proposals), llm_on)
+
+    # ---- 6. TAILOR ----
+    tailor_model = criteria.get("tailor_model", "claude-opus-4-8")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for row in proposals:
+        job = dict(row)
+        try:
+            content, notes = tailor_resume(llm, tailor_model, profile, job)
+            resume_path = RESUME_DIR / today / f"{row['id']}_{_safe(job['company'])}.docx"
+            build_resume(content, resume_path)
+            cl = cover_letter(llm, tailor_model, profile, job)
+            ans = screening_answers(profile)
+            db.update_job(
+                conn, row["id"], status="tailored",
+                tailored_resume_path=str(resume_path),
+                cover_letter_text=cl or "",
+                change_log=notes,
+                screening_answers=ans,
+            )
+        except Exception as exc:
+            counts["errors"] += 1
+            log.error("tailor failed for %s: %s", row["id"], exc)
+            db.update_job(conn, row["id"], status="error", error_text=str(exc))
+    conn.commit()
+
+    # ---- 7. DIGEST ----
+    tailored = [dict(r) for r in db.jobs_by_status(conn, "tailored")
+                if r["proposed_in_run_id"] == run_id]
+    if llm_on:
+        tailored.sort(key=lambda j: j.get("llm_score") or 0, reverse=True)
+    else:
+        tailored.sort(key=lambda j: j.get("embed_score") or 0, reverse=True)
+    _, digest_path = render_digest(tailored, run_id, scorer.mode, llm_on)
+
+    db.finish_run(conn, run_id, **counts)
+    conn.close()
+
+    log.info("DONE. Digest: %s", digest_path)
+    return {"run_id": run_id, "digest": str(digest_path), "llm_on": llm_on,
+            "scorer_mode": scorer.mode, **counts}

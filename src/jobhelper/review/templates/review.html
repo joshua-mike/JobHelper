@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobHelper — Review</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --fg:#e6e8ec;
+            --muted:#9aa3b2; --green:#2ea043; --red:#cf3b3b; --blue:#3b82f6;
+            --amber:#d9a441; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg);
+           font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+    header { padding:18px 28px; border-bottom:1px solid var(--line);
+             display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+    header h1 { font-size:18px; margin:0; }
+    .stats { color:var(--muted); font-size:13px; display:flex; gap:14px; flex-wrap:wrap; }
+    .stats b { color:var(--fg); }
+    main { max-width:920px; margin:0 auto; padding:24px 20px 80px; }
+    h2.section { font-size:13px; text-transform:uppercase; letter-spacing:.08em;
+                 color:var(--muted); margin:34px 0 12px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+            padding:18px 20px; margin-bottom:16px; }
+    .top { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; }
+    .title { font-size:16px; font-weight:600; margin:0; }
+    .sub { color:var(--muted); font-size:13px; margin-top:3px; }
+    .score { flex:none; font-weight:700; font-size:15px; padding:4px 10px;
+             border-radius:999px; background:#10233a; color:#8ec5ff; border:1px solid #1e3a5f; }
+    .score.lo { background:#2a1a1a; color:#f0a0a0; border-color:#5a2a2a; }
+    .rationale { margin:12px 0 6px; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+    .chip { font-size:12px; padding:2px 9px; border-radius:999px; border:1px solid var(--line); }
+    .chip.met { background:#11240f; color:#8fd98a; border-color:#244a1e; }
+    .chip.gap { background:#241a0f; color:#e6c483; border-color:#4a3a1e; }
+    .links { display:flex; gap:14px; margin:12px 0; flex-wrap:wrap; }
+    a { color:var(--blue); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    details { margin:10px 0; }
+    summary { cursor:pointer; color:var(--muted); font-size:13px; }
+    pre.letter { white-space:pre-wrap; background:#0c0e12; border:1px solid var(--line);
+                 border-radius:8px; padding:14px; margin-top:10px; font:13px/1.6 inherit; }
+    .screening { font-size:13px; color:var(--muted); margin-top:8px; }
+    .screening b { color:var(--fg); }
+    .notes { font-size:13px; color:var(--muted); margin:8px 0 0; padding-left:18px; }
+    .actions { display:flex; gap:8px; margin-top:14px; }
+    button { font:inherit; font-weight:600; border:none; border-radius:8px;
+             padding:8px 16px; cursor:pointer; color:#fff; }
+    .b-applied { background:var(--green); }
+    .b-approve { background:var(--blue); }
+    .b-assist { background:#7c3aed; }
+    .b-skip { background:#3a3f4a; }
+    .b-reset { background:#3a3f4a; font-weight:500; }
+    button:hover { filter:brightness(1.1); }
+    .empty { color:var(--muted); padding:20px; text-align:center;
+             border:1px dashed var(--line); border-radius:12px; }
+    .done-row { display:flex; justify-content:space-between; padding:8px 14px;
+                border-bottom:1px solid var(--line); font-size:14px; align-items:center; }
+    .done-row form { margin:0; }
+    .muted { color:var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧭 JobHelper — Review</h1>
+    <div class="stats">
+      <span><b>{{ pending|length }}</b> to review</span>
+      <span><b>{{ stats.get('applied', 0) }}</b> applied</span>
+      <span><b>{{ stats.get('skipped', 0) }}</b> skipped</span>
+      <span class="muted">{{ stats.get('filtered_out', 0) }} filtered · {{ stats.get('new',0)+stats.get('ranked',0)+stats.get('scored',0) }} in backlog</span>
+      {% if stats.get('applied', 0) %}<a href="/applications.csv">⤓ applications log (CSV)</a>{% endif %}
+    </div>
+  </header>
+
+  <main>
+    <h2 class="section">Proposals to review</h2>
+    {% if not pending %}
+      <div class="empty">Nothing to review. Run <code>python run_daily.py</code> to generate today's proposals.</div>
+    {% endif %}
+
+    {% for j in pending %}
+    <div class="card">
+      <div class="top">
+        <div>
+          <p class="title">{{ j.title }} — {{ j.company }}</p>
+          <p class="sub">{{ j.location or j.candidate_location }} · source: {{ j.source }}
+             {% if j.status == 'approved' %}· <span style="color:var(--blue)">approved</span>{% endif %}</p>
+        </div>
+        <div class="score {{ 'lo' if j.display_score < 50 else '' }}">{{ j.display_score }}</div>
+      </div>
+
+      {% if j.llm_rationale %}<p class="rationale">{{ j.llm_rationale }}</p>{% endif %}
+
+      {% if j.musthaves_met or j.missing %}
+      <div class="chips">
+        {% for m in j.musthaves_met %}<span class="chip met">✓ {{ m }}</span>{% endfor %}
+        {% for m in j.missing %}<span class="chip gap">⚠ {{ m }}</span>{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="links">
+        <a href="{{ j.url }}" target="_blank" rel="noopener">Open posting ↗</a>
+        {% if j.has_resume %}<a href="/resume/{{ j.id }}">Download tailored résumé ⤓</a>{% endif %}
+      </div>
+
+      {% if j.screening %}
+      <div class="screening">
+        <b>Years exp:</b> {{ j.screening.get('years_of_experience','') }} ·
+        <b>Work auth:</b> {{ j.screening.get('work_authorization','') }} ·
+        <b>Sponsorship:</b> {{ j.screening.get('requires_sponsorship','') }} ·
+        <b>Salary:</b> {{ j.screening.get('desired_salary','') }}
+      </div>
+      {% endif %}
+
+      {% if j.notes %}
+      <details>
+        <summary>What was tailored ({{ j.notes|length }})</summary>
+        <ul class="notes">{% for n in j.notes %}<li>{{ n }}</li>{% endfor %}</ul>
+      </details>
+      {% endif %}
+
+      {% if j.cover_letter_text %}
+      <details>
+        <summary>Cover letter draft</summary>
+        <pre class="letter">{{ j.cover_letter_text }}</pre>
+      </details>
+      {% endif %}
+
+      <div class="actions">
+        {% if j.can_assist %}
+        <form method="post" action="/apply/{{ j.id }}">
+          <button class="b-assist" name="go" value="1"
+                  title="Open this {{ j.ats }} form in a browser and auto-fill it. You review &amp; submit.">🌐 Assisted apply</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/action/{{ j.id }}">
+          <button class="b-applied" name="action" value="applied">✓ Mark applied</button>
+        </form>
+        {% if j.status != 'approved' %}
+        <form method="post" action="/action/{{ j.id }}">
+          <button class="b-approve" name="action" value="approve">★ Approve</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/action/{{ j.id }}">
+          <button class="b-skip" name="action" value="skip">Skip</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+
+    {% if applied %}
+    <h2 class="section">Applied ({{ applied|length }})</h2>
+    {% for j in applied %}
+    <div class="done-row">
+      <span><a href="{{ j.url }}" target="_blank" rel="noopener">{{ j.title }}</a>
+            <span class="muted">— {{ j.company }} · {{ j.applied_at }}</span></span>
+      <form method="post" action="/action/{{ j.id }}">
+        <button class="b-reset" name="action" value="reset">undo</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if skipped %}
+    <h2 class="section">Skipped ({{ skipped|length }})</h2>
+    {% for j in skipped %}
+    <div class="done-row">
+      <span class="muted">{{ j.title }} — {{ j.company }}</span>
+      <form method="post" action="/action/{{ j.id }}">
+        <button class="b-reset" name="action" value="reset">restore</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </main>
+</body>
+</html>

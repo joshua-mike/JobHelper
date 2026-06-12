@@ -1,0 +1,103 @@
+# =============================================================================
+# SEARCH CRITERIA  —  what counts as a relevant job, and how many to surface.
+#
+# These drive the cheap, deterministic HARD FILTER that runs before any AI spend,
+# plus the daily proposal count. Edit freely; this file IS committed (no secrets).
+# =============================================================================
+
+# How many tailored proposals to put in the daily digest.
+daily_target: 4
+
+# Spread proposals across employers: at most this many roles from any one company
+# per day. 1 = maximum variety (one role per company); raise to 2+ to allow a
+# couple from a great-fit company. (If too few companies qualify, the day still
+# fills to daily_target from the next-best roles.)
+max_per_company: 1
+
+# Recall scoring before the Claude judge:
+#   auto     = semantic (sentence-transformers) if installed, else lexical
+#   semantic = force semantic (warns if the model isn't installed)
+#   lexical  = fast keyword cosine, no heavy dependency
+scoring: "auto"
+
+# Of the jobs that survive hard filters, the top N (by lexical/semantic score)
+# get sent to the Claude judge for precise scoring. Keeps token cost tiny.
+llm_shortlist: 15
+
+# A proposed job must score at least this (0-100) to make the digest.
+# Applies to the Claude score if available, else the scaled lexical score.
+min_score: 55
+
+# ---- Role targeting -----------------------------------------------------------
+# A job's TITLE must contain at least one of these (case-insensitive substring).
+# Leave empty [] to disable title gating.
+title_include_any:
+  - "engineer"
+  - "developer"
+  - "software"
+  - ".net"
+  - "c#"
+  - "full stack"
+  - "fullstack"
+  - "backend"
+
+# Reject if the TITLE contains any of these (filters out roles you don't want).
+# Note: "staff" and "principal" are NOT excluded — they're senior IC roles you may
+# want. Add them back if you only want "Senior"-level titles.
+title_exclude_any:
+  - "intern"
+  - "manager"
+  - "director"
+  - "vp"
+  - "sales"
+  - "marketing"
+  - "recruiter"
+
+# At least one of these must appear somewhere in title OR description.
+# Leave empty [] to disable.
+keywords_any:
+  - ".net"
+  - "c#"
+  - "software engineer"
+  - "developer"
+  - "api"
+  - "full stack"
+
+# Reject if any of these appear in the description (hard dealbreakers).
+# NOTE: clearance-required roles are NOT excluded — your active DoD clearance is an
+# asset for federal/defense work, so those postings are kept.
+keywords_exclude:
+  - "on-site only"
+  - "onsite only"
+  - "no remote"
+
+# ---- Remote / location --------------------------------------------------------
+remote_required: true
+
+# If a job advertises a candidate-location restriction, keep it only if one of
+# these tokens appears in that restriction (case-insensitive). Empty [] = allow
+# any remote location. Example: ["USA", "United States", "US", "Anywhere", "Worldwide"]
+allowed_location_tokens:
+  - "USA"
+  - "United States"
+  - "US"
+  - "Anywhere"
+  - "Worldwide"
+  - "Remote"
+
+# ---- Compensation -------------------------------------------------------------
+# If a job lists a salary and its max is below this, reject. Jobs with no listed
+# salary are KEPT (most don't list one). Set to 0 to disable.
+salary_floor: 0
+
+# ---- Exclusions ---------------------------------------------------------------
+exclude_companies:
+  - "Example Bad Corp"
+
+# ---- Freshness ----------------------------------------------------------------
+# Ignore postings older than this many days (when a post date is available).
+max_age_days: 30
+
+# ---- Models (only used when ANTHROPIC_API_KEY is set) -------------------------
+judge_model: "claude-sonnet-4-6"
+tailor_model: "claude-opus-4-8"

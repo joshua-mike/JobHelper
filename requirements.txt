@@ -1,0 +1,27 @@
+# JobHelper — Phase 0/1 dependencies
+#
+# Core (required). All light, fast to install, pure-Python or small wheels.
+httpx>=0.27
+PyYAML>=6.0
+pydantic>=2.6
+python-docx>=1.1
+Jinja2>=3.1
+
+# AI scoring + resume tailoring. The pipeline runs WITHOUT this (falling back to
+# lexical scoring + a passthrough resume), but installing it and setting
+# ANTHROPIC_API_KEY upgrades job scoring and resume/cover-letter quality.
+anthropic>=0.39
+
+# Phase 2 — local review page (Approve/Skip/Mark-Applied + tracking).
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+
+# Phase 3 — assisted apply (browser fills the form; you click Submit). After
+# installing, run once:  python -m playwright install chromium
+playwright>=1.40
+
+# Semantic ranking (default). Heavier (pulls in CPU torch, ~2-3GB on disk) but
+# improves profile<->JD matching before the Claude judge. To run lean without it,
+# set `scoring: lexical` in config/criteria.yaml and skip this line.
+sentence-transformers>=3.0

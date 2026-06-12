@@ -1,0 +1,77 @@
+# =============================================================================
+# SOURCES  —  where jobs come from. Remote-only, all keyless.
+#
+# The remote aggregator feeds (Remotive, Arbeitnow, RemoteOK) need no config and
+# give broad coverage immediately. The ATS feeds (Greenhouse/Lever/Ashby) pull
+# from a CURATED company list — coverage there equals the list you maintain, so
+# add the remote-first companies you actually want to work for.
+# =============================================================================
+
+# Keyless remote job-board aggregators. Toggle on/off.
+aggregators:
+  remotive: true       # https://remotive.com/api/remote-jobs
+  arbeitnow: true      # https://www.arbeitnow.com/api/job-board-api
+  remoteok: true       # https://remoteok.com/api
+
+# Per-company ATS boards. The "token" is the slug in the public board URL.
+#   Greenhouse: job-boards.greenhouse.io/<token>      -> token
+#   Lever:      jobs.lever.co/<site>                  -> site
+#   Ashby:      jobs.ashbyhq.com/<client>             -> client
+# These are EXAMPLES — replace with real remote-first companies you want.
+ats:
+  # Curated & live-verified (2026-06) for a senior .NET/C# + full-stack, remote,
+  # DoD-cleared candidate. Comments mark the strongest fits. Prune/extend freely.
+  greenhouse:
+    # —— Microsoft-stack / .NET employers ——
+    - "perfectserve"               # .NET — "Senior SWE, .NET - US Remote"
+    - "praxent"                    # .NET — US senior .NET (state-limited remote)
+    - "janeasystems"               # .NET / Azure / SQL Server consultancy
+    - "rackner"                    # .NET + DoD-cleared remote (clearance asset)
+    - "isccareers"                 # Integrated Specialty Coverages — C#/.NET APIs
+    - "lastpass"                   # .NET backend (security)
+    # —— Defense / federal (your DoD clearance is an asset) ——
+    - "govini"                     # defense-acquisition analytics
+    - "vannevarlabs"               # defense; some roles TS/SCI
+    - "defenseunicorns"            # secure software delivery, remote
+    - "striveworks"                # MLOps for defense
+    - "defcon"                     # defense logistics; .NET-adjacent
+    - "systemstechnologyresearch"  # STR — defense R&D
+    - "primerai"                   # AI for intel/defense
+    # —— Gov-tech / public-sector ——
+    - "navapbc"                    # federal digital services
+    - "skylighthq"                 # federal digital services
+    - "oddball"                    # federal (Medicare) software
+    - "mark43"                     # public-safety SaaS
+    - "idme"                       # federal identity
+    - "impiricus"                  # healthcare full-stack, remote-US
+    - "slideinsurance"             # insurtech (verify remote per posting)
+    # —— Large active remote-first boards (full-stack breadth) ——
+    - "affirm"                     # fintech, many Remote-US SWE
+    - "remotecom"                  # fully remote-first
+    - "cortex"                     # remote backend
+    - "openly"                     # insurtech remote-US backend
+  lever:
+    - "bhg-inc"                    # BHG Financial — Azure+C#+SQL+React (near-exact fit)
+    - "Mediafly"                   # C# backend + React, 100% remote (CASE-SENSITIVE)
+    - "agile-defense"              # .NET + DoD Secret, remote
+    - "sprucesystems"              # govtech identity, all-remote
+    - "shieldai"                   # defense-tech (large board)
+    - "palantir"                   # defense/intel (large board)
+    - "civitech"                   # civic-tech remote
+    - "Flex"                       # fintech Remote-US backend (CASE-SENSITIVE)
+    - "CollectlyInc"               # healthcare (Python-first; stretch) (CASE-SENSITIVE)
+  ashby:
+    - "delinea"                    # C#/.NET Core/MS SQL security (strong fit)
+    - "meridianlink"               # C# + React fintech, remote-US
+    - "opengov"                    # govtech, C#/.NET roles (moved here from Lever)
+    - "second-front-systems"       # defense DevSecOps, cleared roles (moved from Lever)
+    - "kin"                        # insurtech remote (Rails; stretch)
+    - "curri"                      # logistics, remote-US senior SWE
+    - "close"                      # CRM, remote-US (Python/React)
+  # Not recovered: Ad Hoc (moved to Workable), Granicus (Lever JSON API disabled),
+  # Optimyl (uses Rippling) — none usable with the Greenhouse/Lever/Ashby adapters.
+
+# Politeness: seconds to wait between HTTP requests to the same host.
+request_delay_seconds: 1.0
+# Hard cap on jobs ingested per source per run (safety valve).
+per_source_cap: 400
