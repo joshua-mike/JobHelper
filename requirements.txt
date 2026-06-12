@@ -23,5 +23,9 @@ playwright>=1.40
 
 # Semantic ranking (default). Heavier (pulls in CPU torch, ~2-3GB on disk) but
 # improves profile<->JD matching before the Claude judge. To run lean without it,
-# set `scoring: lexical` in config/criteria.yaml and skip this line.
+# set `scoring: lexical` in config/criteria.yaml and skip these two lines.
+# The embedding model (ibm-granite/granite-embedding-small-english-r2) is a
+# ModernBERT — transformers older than 4.48 can't load it, and the Scorer would
+# silently fall back to lexical mode, so the floor is explicit here.
 sentence-transformers>=3.0
+transformers>=4.48

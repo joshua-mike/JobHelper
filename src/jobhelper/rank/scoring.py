@@ -13,6 +13,13 @@ from ..util import get_logger
 
 log = get_logger()
 
+# granite-small-r2 reads whole JDs (8192-token context); on this user's judged
+# jobs it agreed with the LLM judge at rho=0.41 vs all-MiniLM-L6-v2's 0.05.
+# Symmetric similarity — no query prefix needed. Scores run ~0.85-0.90 for good
+# matches (vs MiniLM's ~0.5-0.7); all downstream use is rank-based so the scale
+# doesn't matter, but don't mix scores from different models in one pool.
+_MODEL_ID = "ibm-granite/granite-embedding-small-english-r2"
+
 _WORD = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.\-]{1,}")
 _STOP = {
     "the", "and", "for", "with", "you", "our", "are", "this", "that", "will",
@@ -55,11 +62,11 @@ class Scorer:
             return
         try:
             from sentence_transformers import SentenceTransformer  # type: ignore
-            self._model = SentenceTransformer("all-MiniLM-L6-v2")
+            self._model = SentenceTransformer(_MODEL_ID)
             self._profile_vec = self._model.encode(profile_text,
                                                    normalize_embeddings=True)
             self._mode = "semantic"
-            log.info("Scorer: semantic mode (sentence-transformers)")
+            log.info("Scorer: semantic mode (%s)", _MODEL_ID)
         except Exception as exc:
             level = log.warning if prefer == "semantic" else log.info
             level("Scorer: lexical mode (sentence-transformers unavailable: %s)",
