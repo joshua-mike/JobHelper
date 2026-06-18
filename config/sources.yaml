@@ -30,7 +30,7 @@ ats:
     - "isccareers"                 # Integrated Specialty Coverages — C#/.NET APIs
     - "lastpass"                   # .NET backend (security)
     # —— Defense / federal (your DoD clearance is an asset) ——
-    - "govini"                     # defense-acquisition analytics
+    - "air"                        # Govini — defense-acquisition analytics (board token is "air", not "govini")
     - "vannevarlabs"               # defense; some roles TS/SCI
     - "defenseunicorns"            # secure software delivery, remote
     - "striveworks"                # MLOps for defense

@@ -1,6 +1,10 @@
 """Greenhouse public Job Board API (keyless).
 GET https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true
-Pulls ALL of a company's published jobs; the hard filter drops non-remote ones."""
+Pulls ALL of a company's published jobs; the hard filter drops non-remote ones.
+
+NOTE: use boards-api.greenhouse.io (public, keyless). Do NOT switch this to
+harvest.greenhouse.io — that's the employer Harvest API and requires a secret
+key (HTTP 401 for outside applicants)."""
 from __future__ import annotations
 
 from ..models import RawJob
@@ -9,6 +13,13 @@ from .base import JobSource
 
 log = get_logger()
 BASE = "https://boards-api.greenhouse.io/v1/boards"
+
+# A few companies host their Greenhouse board under an internal codename token,
+# so deriving the display name from the token (token.title()) would be wrong or
+# unrecognizable. Map those tokens to the real company name here.
+_NAME_OVERRIDES = {
+    "air": "Govini",   # Govini's board token is "air"
+}
 
 
 class GreenhouseSource(JobSource):
@@ -27,7 +38,7 @@ class GreenhouseSource(JobSource):
             except Exception as exc:
                 log.warning("greenhouse[%s]: fetch failed: %s", token, exc)
                 continue
-            company = token.replace("-", " ").title()
+            company = _NAME_OVERRIDES.get(token) or token.replace("-", " ").title()
             for item in (data.get("jobs") or []):
                 try:
                     loc = (item.get("location") or {}).get("name", "") or ""
