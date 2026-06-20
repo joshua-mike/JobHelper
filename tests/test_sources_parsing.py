@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from jobhelper.sources.amazon import AmazonSource
 from jobhelper.sources.microsoft import MicrosoftSource
 from jobhelper.sources.smartrecruiters import SmartRecruitersSource
 from jobhelper.sources.workday import WorkdaySource
@@ -130,6 +131,31 @@ def test_workday():
     check(j2.company == "X", f"company falls back to tenant.title() ({j2.company})")
 
 
+def test_amazon():
+    print("== Amazon search.json adapter ==")
+    search = {"hits": 1, "jobs": [{
+        "id_icims": "10454256", "title": "Software Development Engineer, AWS",
+        "job_path": "/en/jobs/10454256/software-development-engineer-aws",
+        "normalized_location": "Virtual Location, USA", "city": "Virtual",
+        "posted_date": "June 19, 2026", "job_category": "Software Development",
+        "description": "<p>Build distributed systems.</p>",
+        "basic_qualifications": "<p>5+ years.</p>",
+        "preferred_qualifications": "<p>.NET a plus.</p>",
+    }]}
+    f = FakeFetcher({"/search.json": search})
+    jobs = AmazonSource(f, cap=400, queries=["sde"], per_query=5).fetch()
+    check(len(jobs) == 1, "one job")
+    j = jobs[0]
+    check(j.company == "Amazon", f"company is Amazon ({j.company})")
+    check(j.source_job_id == "10454256", f"id from id_icims ({j.source_job_id})")
+    check(j.url == "https://www.amazon.jobs/en/jobs/10454256/software-development-engineer-aws",
+          f"url from job_path ({j.url})")
+    check(j.date_posted == "2026-06-19", f"posted_date normalized to ISO ({j.date_posted})")
+    check(j.remote_type == "remote", f"'Virtual Location' -> remote ({j.remote_type})")
+    check("distributed systems" in j.description_clean.lower(), "description inline")
+    check(".net a plus" in j.description_clean.lower(), "qualifications concatenated")
+
+
 def test_fetcher_get_unchanged():
     # The POST refactor must not change GET behavior: get_json still routes GETs.
     from jobhelper.sources.base import Fetcher
@@ -142,6 +168,7 @@ def main() -> int:
     test_microsoft()
     test_smartrecruiters()
     test_workday()
+    test_amazon()
     test_fetcher_get_unchanged()
     print("\nALL SOURCE-PARSING CHECKS PASSED")
     return 0

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..util import get_logger
+from .amazon import AmazonSource
 from .arbeitnow import ArbeitnowSource
 from .ashby import AshbySource
 from .base import Fetcher, JobSource
@@ -55,6 +56,10 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False) -> list[
         per_search = int(sources_cfg.get("workday_per_search", 25))
         sources.append(WorkdaySource(fetcher, cap, list(ats_cfg["workday"]),
                                       searches, per_search))
+    # Amazon careers: the list items are SEARCH QUERIES, not company slugs.
+    if ats_cfg.get("amazon"):
+        per_query = int(sources_cfg.get("amazon_per_query", 40))
+        sources.append(AmazonSource(fetcher, cap, list(ats_cfg["amazon"]), per_query))
 
     log.info("Enabled sources: %s", ", ".join(s.name for s in sources) or "(none)")
     return sources

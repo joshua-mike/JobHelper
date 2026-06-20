@@ -99,6 +99,13 @@ ats:
     - { tenant: "leidos",      dc: "wd5", site: "External",                        company: "Leidos" }
     - { tenant: "nvidia",      dc: "wd5", site: "NVIDIAExternalCareerSite",        company: "NVIDIA" }
     - { tenant: "mastercard",  dc: "wd1", site: "CorporateCareers",               company: "Mastercard" }
+  # Amazon careers (amazon.jobs). NOTE: items here are SEARCH QUERIES, not slugs.
+  # Mostly office-based (Seattle/Bellevue/Arlington); remote-only filtering keeps
+  # only "Virtual Location" roles unless you add "Amazon" to onsite_ok_companies.
+  amazon:
+    - "software development engineer"
+    - ".net"
+    - "c#"
   # Not recovered: Ad Hoc (moved to Workable), Granicus (Lever JSON API disabled),
   # Optimyl (uses Rippling) — none usable with the Greenhouse/Lever/Ashby adapters.
 
@@ -108,6 +115,8 @@ request_delay_seconds: 1.0
 per_source_cap: 400
 # Microsoft only: top N results pulled per search query (keeps the crawl low-volume).
 microsoft_per_query: 40
+# Amazon only: top N results pulled per search query.
+amazon_per_query: 40
 # Workday only: search terms applied to EACH tenant, and the cap per term. Workday
 # boards are large, so these scope the crawl to relevant roles (kept low-volume).
 workday_searches:
