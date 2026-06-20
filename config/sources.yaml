@@ -86,6 +86,19 @@ ats:
     - ".net"
     - "c#"
     - "backend engineer"
+  # Workday powers a huge share of large employers. Each entry needs THREE slugs
+  # from the careers URL https://{tenant}.{dc}.myworkdayjobs.com/{site}:
+  #   tenant (1st label), dc (2nd label: wd1/wd5/...), site (path segment).
+  # All below are live-verified (2026-06). The defense/federal primes are the
+  # strongest fits for a cleared .NET engineer; remote-only filtering applies, so
+  # add a company to onsite_ok_companies (criteria.yaml) to also see onsite roles.
+  workday:
+    - { tenant: "caci",        dc: "wd1", site: "External",                        company: "CACI" }
+    - { tenant: "bah",         dc: "wd1", site: "BAH_Jobs",                        company: "Booz Allen Hamilton" }
+    - { tenant: "ngc",         dc: "wd1", site: "Northrop_Grumman_External_Site",  company: "Northrop Grumman" }
+    - { tenant: "leidos",      dc: "wd5", site: "External",                        company: "Leidos" }
+    - { tenant: "nvidia",      dc: "wd5", site: "NVIDIAExternalCareerSite",        company: "NVIDIA" }
+    - { tenant: "mastercard",  dc: "wd1", site: "CorporateCareers",               company: "Mastercard" }
   # Not recovered: Ad Hoc (moved to Workable), Granicus (Lever JSON API disabled),
   # Optimyl (uses Rippling) — none usable with the Greenhouse/Lever/Ashby adapters.
 
@@ -95,3 +108,10 @@ request_delay_seconds: 1.0
 per_source_cap: 400
 # Microsoft only: top N results pulled per search query (keeps the crawl low-volume).
 microsoft_per_query: 40
+# Workday only: search terms applied to EACH tenant, and the cap per term. Workday
+# boards are large, so these scope the crawl to relevant roles (kept low-volume).
+workday_searches:
+  - "software engineer"
+  - ".net"
+  - "c#"
+workday_per_search: 25

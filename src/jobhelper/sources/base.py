@@ -56,7 +56,16 @@ class Fetcher:
 
     def get_json(self, url: str, params: dict | None = None,
                  headers: dict | None = None) -> Any:
-        cache = self._cache_path(url, params)
+        return self._send("GET", url, params=params, headers=headers)
+
+    def post_json(self, url: str, json_body: dict, headers: dict | None = None) -> Any:
+        """POST a JSON body and return parsed JSON (same throttle/retry/cache as GET).
+        Cache key includes the body, so different POST payloads cache separately."""
+        return self._send("POST", url, json_body=json_body, headers=headers)
+
+    def _send(self, method: str, url: str, params: dict | None = None,
+              json_body: dict | None = None, headers: dict | None = None) -> Any:
+        cache = self._cache_path(url, params if params is not None else json_body)
         if self.use_cache and cache.exists():
             log.debug("cache hit %s", url)
             return json.loads(cache.read_text(encoding="utf-8"))
@@ -65,7 +74,10 @@ class Fetcher:
         for attempt in range(1, self.max_retries + 1):
             self._throttle(url)
             try:
-                resp = self._client.get(url, params=params, headers=headers)
+                if method == "POST":
+                    resp = self._client.post(url, json=json_body, headers=headers)
+                else:
+                    resp = self._client.get(url, params=params, headers=headers)
                 if resp.status_code in _RETRY_STATUS:
                     wait = _retry_after(resp, attempt)
                     log.warning("%s -> HTTP %s, retry %d/%d in %.1fs", url,
@@ -74,7 +86,7 @@ class Fetcher:
                     continue
                 if resp.status_code >= 400:
                     # Non-retryable client error (e.g. 404 bad slug) — fail fast.
-                    raise RuntimeError(f"GET {url} -> HTTP {resp.status_code}")
+                    raise RuntimeError(f"{method} {url} -> HTTP {resp.status_code}")
                 data = resp.json()
                 try:  # write-through cache for debugging re-runs
                     cache.write_text(json.dumps(data), encoding="utf-8")
@@ -87,7 +99,7 @@ class Fetcher:
                 log.warning("%s -> %s, retry %d/%d in %.0fs", url, exc,
                             attempt, self.max_retries, wait)
                 time.sleep(wait)
-        raise RuntimeError(f"GET failed after {self.max_retries} tries: {url}") \
+        raise RuntimeError(f"{method} failed after {self.max_retries} tries: {url}") \
             from last_err
 
 

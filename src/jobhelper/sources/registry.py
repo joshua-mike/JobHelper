@@ -13,6 +13,7 @@ from .microsoft import MicrosoftSource
 from .remoteok import RemoteOKSource
 from .remotive import RemotiveSource
 from .smartrecruiters import SmartRecruitersSource
+from .workday import WorkdaySource
 
 log = get_logger()
 
@@ -48,6 +49,12 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False) -> list[
     if ats_cfg.get("microsoft"):
         per_query = int(sources_cfg.get("microsoft_per_query", 40))
         sources.append(MicrosoftSource(fetcher, cap, list(ats_cfg["microsoft"]), per_query))
+    # Workday: list of per-tenant {tenant, dc, site, company} dicts; searches scope the crawl.
+    if ats_cfg.get("workday"):
+        searches = list(sources_cfg.get("workday_searches", []) or [])
+        per_search = int(sources_cfg.get("workday_per_search", 25))
+        sources.append(WorkdaySource(fetcher, cap, list(ats_cfg["workday"]),
+                                      searches, per_search))
 
     log.info("Enabled sources: %s", ", ".join(s.name for s in sources) or "(none)")
     return sources
