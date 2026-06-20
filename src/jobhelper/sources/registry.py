@@ -9,8 +9,10 @@ from .ashby import AshbySource
 from .base import Fetcher, JobSource
 from .greenhouse import GreenhouseSource
 from .lever import LeverSource
+from .microsoft import MicrosoftSource
 from .remoteok import RemoteOKSource
 from .remotive import RemotiveSource
+from .smartrecruiters import SmartRecruitersSource
 
 log = get_logger()
 
@@ -40,6 +42,12 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False) -> list[
         sources.append(LeverSource(fetcher, cap, list(ats_cfg["lever"])))
     if ats_cfg.get("ashby"):
         sources.append(AshbySource(fetcher, cap, list(ats_cfg["ashby"])))
+    if ats_cfg.get("smartrecruiters"):
+        sources.append(SmartRecruitersSource(fetcher, cap, list(ats_cfg["smartrecruiters"])))
+    # Microsoft careers: the list items are SEARCH QUERIES, not company slugs.
+    if ats_cfg.get("microsoft"):
+        per_query = int(sources_cfg.get("microsoft_per_query", 40))
+        sources.append(MicrosoftSource(fetcher, cap, list(ats_cfg["microsoft"]), per_query))
 
     log.info("Enabled sources: %s", ", ".join(s.name for s in sources) or "(none)")
     return sources

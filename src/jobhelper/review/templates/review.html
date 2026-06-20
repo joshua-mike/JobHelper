@@ -50,6 +50,7 @@
     .b-assist { background:#7c3aed; }
     .b-skip { background:#3a3f4a; }
     .b-reset { background:#3a3f4a; font-weight:500; }
+    .b-copy { background:#2a2f3a; font-size:13px; padding:6px 12px; margin:10px 0 0; }
     button:hover { filter:brightness(1.1); }
     .empty { color:var(--muted); padding:20px; text-align:center;
              border:1px dashed var(--line); border-radius:12px; }
@@ -121,6 +122,7 @@
       {% if j.cover_letter_text %}
       <details>
         <summary>Cover letter draft</summary>
+        <button type="button" class="b-copy" onclick="copyLetter(this)">📋 Copy cover letter</button>
         <pre class="letter">{{ j.cover_letter_text }}</pre>
       </details>
       {% endif %}
@@ -172,5 +174,24 @@
     {% endfor %}
     {% endif %}
   </main>
+  <script>
+    function copyLetter(btn) {
+      const pre = btn.parentElement.querySelector('pre.letter');
+      if (!pre) return;
+      const text = pre.innerText;
+      const done = () => { const o = btn.textContent; btn.textContent = '✓ Copied';
+                           setTimeout(() => { btn.textContent = o; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, () => fallback(text, done));
+      } else { fallback(text, done); }
+    }
+    function fallback(text, done) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+  </script>
 </body>
 </html>

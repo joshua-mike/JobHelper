@@ -71,6 +71,21 @@ ats:
     - "kin"                        # insurtech remote (Rails; stretch)
     - "curri"                      # logistics, remote-US senior SWE
     - "close"                      # CRM, remote-US (Python/React)
+  # SmartRecruiters: public REST per company. Items are company slugs (the segment
+  # in jobs.smartrecruiters.com/<slug>). Add the companies you want; SmartRecruiters
+  # skews consumer/enterprise (lighter on defense), so curate to your targets.
+  smartrecruiters:
+    - "Visa"                       # payments/fintech (CASE-SENSITIVE slug) — starter; replace/extend
+  # Microsoft careers (Eightfold "pcsx" API). NOTE: items here are SEARCH QUERIES,
+  # not company slugs — the adapter pulls the top results per query, fetches each
+  # job's full description, and tags remote/hybrid/onsite from the work-site field.
+  # Remote-only filtering means few MS roles pass unless you add "Microsoft" to
+  # onsite_ok_companies in criteria.yaml (US-scoped) to also see Redmond/onsite roles.
+  microsoft:
+    - "software engineer"
+    - ".net"
+    - "c#"
+    - "backend engineer"
   # Not recovered: Ad Hoc (moved to Workable), Granicus (Lever JSON API disabled),
   # Optimyl (uses Rippling) — none usable with the Greenhouse/Lever/Ashby adapters.
 
@@ -78,3 +93,5 @@ ats:
 request_delay_seconds: 1.0
 # Hard cap on jobs ingested per source per run (safety valve).
 per_source_cap: 400
+# Microsoft only: top N results pulled per search query (keeps the crawl low-volume).
+microsoft_per_query: 40
