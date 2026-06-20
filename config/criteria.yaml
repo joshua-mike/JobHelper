@@ -85,6 +85,7 @@ remote_required: true
 # apply. Empty [] = strict remote-only for everyone.
 onsite_ok_companies:
   - "xAI"
+  - "Microsoft"
 
 # If a job advertises a candidate-location restriction, keep it only if one of
 # these tokens appears in that restriction (case-insensitive). Empty [] = allow

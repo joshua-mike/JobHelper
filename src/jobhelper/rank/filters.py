@@ -13,19 +13,33 @@ _US_STATE_CODES = frozenset(
     "MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC"
     .split()
 )
-_TWO_LETTER = re.compile(r"\b[A-Za-z]{2}\b")
 
 
 def _is_us_location(loc: str) -> bool:
-    """Heuristic: does this location string denote a US-based place? Matches an
-    explicit US/United States mention or a 'City, ST' state code (also handles
-    multi-location strings like 'Memphis, TN; Southaven, MS')."""
+    """Heuristic: does this location string denote a US-based place?
+
+    Handles both shapes seen in the data: 'City, ST' (no country) and
+    'City, Region, CC' (trailing country code). Only the TRAILING token is read as
+    the country, so a foreign country code that collides with a US state
+    abbreviation — 'IN' India vs Indiana, 'CA' Canada vs California, 'DE' Germany
+    vs Delaware — is not misread as US. Multi-location strings joined by ';' or
+    '/' are split and pass if ANY part is US.
+    """
     if not loc:
         return False
-    low = loc.lower()
-    if "united states" in low or "usa" in low or "u.s." in low:
+    if "united states" in loc.lower() or "usa" in loc.lower():
         return True
-    return any(t.upper() in _US_STATE_CODES for t in _TWO_LETTER.findall(loc))
+    for sub in re.split(r"[;/]", loc):
+        toks = [t.strip() for t in sub.split(",") if t.strip()]
+        if not toks:
+            continue
+        last = toks[-1].upper().replace(".", "")
+        if last in ("US", "USA"):
+            return True
+        # 'City, ST' with no country suffix: the trailing token is a US state code.
+        if len(toks) == 2 and last in _US_STATE_CODES:
+            return True
+    return False
 
 
 def _any_in(needles: list[str], haystack: str) -> bool:

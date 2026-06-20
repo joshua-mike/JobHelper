@@ -69,6 +69,20 @@ def main() -> int:
     ok, reason = passes(job("xAI", "London, UK; New York, NY", remote_type="onsite"), CRITERIA)
     check(ok, f"xAI multi-loc with US part kept (reason: {reason!r})")
 
+    print("== foreign country codes that collide with US state codes are NOT US ==")
+    # 'City, Region, CC' where CC collides with a state abbr (IN India/Indiana,
+    # CA Canada/California, DE Germany/Delaware). Trailing token is the country.
+    ms = dict(CRITERIA, onsite_ok_companies=["Microsoft"])
+    for loc in ("Bengaluru, KA, IN", "Hyderabad, TS, IN; Noida, UP, IN",
+                "Toronto, ON, CA", "Berlin, BE, DE"):
+        ok, reason = passes(job("Microsoft", loc, remote_type="onsite"), ms)
+        check(not ok, f"{loc!r} rejected (reason: {reason!r})")
+    # ...but the genuine US forms still pass.
+    for loc in ("Redmond, WA, US", "Redmond, WA, US; Bengaluru, KA, IN",
+                "Arlington, Virginia, USA"):
+        ok, reason = passes(job("Microsoft", loc, remote_type="onsite"), ms)
+        check(ok, f"{loc!r} kept (reason: {reason!r})")
+
     print("== a genuine remote role at a normal company still passes ==")
     ok, reason = passes(job("Acme Corp", "Remote - US", remote_type="remote"), CRITERIA)
     check(ok, f"remote role kept (reason: {reason!r})")
