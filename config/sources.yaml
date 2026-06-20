@@ -50,6 +50,9 @@ ats:
     - "remotecom"                  # fully remote-first
     - "cortex"                     # remote backend
     - "openly"                     # insurtech remote-US backend
+    # —— AI labs ——
+    - "xai"                        # xAI (board token "xai"); mostly ONSITE (Palo Alto/
+                                   #   Memphis) — see onsite_ok_companies in criteria.yaml
   lever:
     - "bhg-inc"                    # BHG Financial — Azure+C#+SQL+React (near-exact fit)
     - "Mediafly"                   # C# backend + React, 100% remote (CASE-SENSITIVE)

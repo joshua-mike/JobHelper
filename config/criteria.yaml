@@ -5,14 +5,16 @@
 # plus the daily proposal count. Edit freely; this file IS committed (no secrets).
 # =============================================================================
 
-# How many tailored proposals to put in the daily digest.
-daily_target: 4
+# How many tailored proposals to put in the daily digest. This is a CEILING, not
+# a quota — a role still has to clear min_score (the quality bar) to be proposed,
+# so a thin day may surface fewer than this.
+daily_target: 6
 
 # Spread proposals across employers: at most this many roles from any one company
 # per day. 1 = maximum variety (one role per company); raise to 2+ to allow a
 # couple from a great-fit company. (If too few companies qualify, the day still
 # fills to daily_target from the next-best roles.)
-max_per_company: 1
+max_per_company: 2
 
 # Recall scoring before the Claude judge:
 #   auto     = semantic (sentence-transformers) if installed, else lexical
@@ -73,6 +75,16 @@ keywords_exclude:
 
 # ---- Remote / location --------------------------------------------------------
 remote_required: true
+
+# Per-company exception to remote_required: onsite/hybrid or location-restricted
+# roles at these companies are kept (i.e. companies you'd relocate for) — but only
+# for US-based locations; an onsite role abroad (e.g. London, Tokyo) is still
+# dropped. Match is on the EXACT company name as it appears in the digest (case-
+# insensitive) — e.g. "xAI", not the board token "xai" — so a substring like
+# "CapitexAI" is NOT accidentally exempted. The dealbreaker keywords below still
+# apply. Empty [] = strict remote-only for everyone.
+onsite_ok_companies:
+  - "xAI"
 
 # If a job advertises a candidate-location restriction, keep it only if one of
 # these tokens appears in that restriction (case-insensitive). Empty [] = allow

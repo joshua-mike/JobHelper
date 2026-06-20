@@ -19,6 +19,7 @@ BASE = "https://boards-api.greenhouse.io/v1/boards"
 # unrecognizable. Map those tokens to the real company name here.
 _NAME_OVERRIDES = {
     "air": "Govini",   # Govini's board token is "air"
+    "xai": "xAI",      # so the display name isn't the title-cased "Xai"
 }
 
 
