@@ -29,6 +29,7 @@ ats:
     - "rackner"                    # .NET + DoD-cleared remote (clearance asset)
     - "isccareers"                 # Integrated Specialty Coverages — C#/.NET APIs
     - "lastpass"                   # .NET backend (security)
+    - "iherb"                      # e-commerce catalog — .NET/C#+React+SQL Server, many remote
     # —— Defense / federal (your DoD clearance is an asset) ——
     - "air"                        # Govini — defense-acquisition analytics (board token is "air", not "govini")
     - "vannevarlabs"               # defense; some roles TS/SCI
