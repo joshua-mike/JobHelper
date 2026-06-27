@@ -1,6 +1,8 @@
 # Secrets & local config
 .env
 config/profile.yaml
+# Machine-local Claude Code settings (local paths / per-machine permission state)
+.claude/settings.local.json
 
 # Generated data (DB, resumes, digests, cached API responses)
 data/
