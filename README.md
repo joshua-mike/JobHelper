@@ -71,6 +71,22 @@ Each proposal shows its fit score, met/missing breakdown, the tailored résumé
 move to history with an undo. It only tracks *your own* manual applications —
 nothing is ever submitted for you.
 
+### Dashboard (metrics + one-click run)
+
+A local dashboard shows your job-hunt metrics at a glance — last run, proposed
+today, pending review, applications this week, a 30-day activity chart, pipeline
+funnel, and per-source stats — and can execute the daily run with live log
+streaming (no more terminal required):
+
+```powershell
+cd web; npm install; npm run build; cd ..   # one-time (and after UI changes)
+python run_ui.py                             # serves http://127.0.0.1:8787
+```
+
+The React frontend builds to static files that the FastAPI backend serves
+directly, so day-to-day only the one Python process runs. For UI development,
+`npm run dev` inside `web/` gives hot reload and proxies `/api` to the backend.
+
 ### Applications log
 
 Every time you mark a job applied (review page or assisted apply), a row is
@@ -137,9 +153,12 @@ src/jobhelper/
   rank/            filters, recall scoring, optional Claude judge
   tailor/          resume content, ATS-safe .docx, cover letter, screening answers
   digest/          daily Markdown digest
+  web/             dashboard API (metrics, run control + SSE logs, serves web/dist)
   db.py            SQLite schema + state machine
   pipeline.py      the orchestrator
 run_daily.py       entry point (Task Scheduler target)
+run_ui.py          dashboard entry point (http://127.0.0.1:8787)
+web/               React dashboard frontend (Vite + Tailwind; builds to web/dist)
 data/              SQLite db, generated resumes, digests, cache (gitignored)
 ```
 
@@ -179,6 +198,7 @@ python tests\test_apply_matching.py  # offline: form-field matching across ATS
 python tests\test_screening.py       # offline: screening polarity + option matching
 python tests\test_applog.py          # offline: applications-log upsert/remove
 python tests\test_select_diverse.py  # offline: per-company diversity cap
+python tests\test_web_smoke.py       # in-process: dashboard API + stubbed run + SSE
 ```
 
 ## Roadmap
@@ -189,6 +209,8 @@ python tests\test_select_diverse.py  # offline: per-company diversity cap
   form (Greenhouse/Lever/Ashby), best-effort auto-answers common screening
   dropdowns, and stops at Submit. Verified live against real Greenhouse and Lever
   forms. Human always submits; never on LinkedIn/Indeed.
+- **Phase 4 — built.** Dashboard UI (React + FastAPI, `run_ui.py`): metrics at a
+  glance + execute the daily run with live logs. Tracked as ITEM-2 in personal Jira.
 - **Semantic scoring** (sentence-transformers) and the **applications log** are on
   by default.
 

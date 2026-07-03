@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 antialiased;
+}
+
+/* Slim scrollbars for the log viewer / tables */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent; /* slate-700 */
+}

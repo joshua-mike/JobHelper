@@ -6,6 +6,18 @@
       "runtimeExecutable": "Y:/JobHelper/.venv/Scripts/python.exe",
       "runtimeArgs": ["review.py"],
       "port": 8765
+    },
+    {
+      "name": "jobhelper-dashboard",
+      "runtimeExecutable": "Y:/JobHelper/.venv/Scripts/python.exe",
+      "runtimeArgs": ["run_ui.py", "--no-browser"],
+      "port": 8787
+    },
+    {
+      "name": "jobhelper-web-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "web", "run", "dev"],
+      "port": 5173
     }
   ]
 }

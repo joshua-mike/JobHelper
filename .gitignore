@@ -7,6 +7,10 @@ config/profile.yaml
 # Generated data (DB, resumes, digests, cached API responses)
 data/
 
+# Frontend (dashboard UI)
+web/node_modules/
+web/dist/
+
 # Python
 __pycache__/
 *.py[cod]

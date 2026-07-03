@@ -1,0 +1,57 @@
+import { useCallback } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from './client'
+
+const METRIC_KEYS = ['summary', 'funnel', 'timeline', 'sources', 'runs', 'recentJobs']
+
+export function useSummary() {
+  return useQuery({ queryKey: ['summary'], queryFn: () => api.summary() })
+}
+
+export function useFunnel() {
+  return useQuery({ queryKey: ['funnel'], queryFn: () => api.funnel() })
+}
+
+export function useTimeline(days = 30) {
+  return useQuery({ queryKey: ['timeline', days], queryFn: () => api.timeline(days) })
+}
+
+export function useSources() {
+  return useQuery({ queryKey: ['sources'], queryFn: () => api.sources() })
+}
+
+export function useRuns(limit = 20) {
+  return useQuery({ queryKey: ['runs', limit], queryFn: () => api.runs(limit) })
+}
+
+export function useRecentJobs(limit = 15) {
+  return useQuery({ queryKey: ['recentJobs', limit], queryFn: () => api.recentJobs(limit) })
+}
+
+export function useRunStatus() {
+  return useQuery({
+    queryKey: ['runStatus'],
+    queryFn: () => api.runStatus(),
+    // Tight poll while a run is live so the pill/panel react quickly.
+    refetchInterval: (query) => (query.state.data?.state === 'running' ? 2000 : 15000),
+  })
+}
+
+export function useStartRun() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (useCache: boolean) => api.startRun(useCache),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ['runStatus'] })
+      void qc.invalidateQueries({ queryKey: ['runs'] })
+    },
+  })
+}
+
+/** Refresh every metric query — called when a run completes. */
+export function useInvalidateMetrics() {
+  const qc = useQueryClient()
+  return useCallback(() => {
+    for (const key of METRIC_KEYS) void qc.invalidateQueries({ queryKey: [key] })
+  }, [qc])
+}
