@@ -1,5 +1,5 @@
 import { Clock, Inbox, Send, Sparkles } from 'lucide-react'
-import { REVIEW_URL } from '../api/client'
+import { Link } from 'react-router-dom'
 import {
   useFunnel,
   useRecentJobs,
@@ -54,7 +54,7 @@ export default function DashboardPage() {
           label="Pending review"
           icon={Inbox}
           value={s ? s.pending_review : '…'}
-          sub="waiting on the review page"
+          sub="waiting on the review board"
         />
         <StatCard
           label="Applied (7d)"
@@ -80,14 +80,12 @@ export default function DashboardPage() {
         <Card
           title="Recent proposals"
           action={
-            <a
-              href={REVIEW_URL}
-              target="_blank"
-              rel="noreferrer"
+            <Link
+              to="/review"
               className="text-xs font-medium text-indigo-400 hover:underline"
             >
-              Open review page ↗
-            </a>
+              Open review board →
+            </Link>
           }
         >
           <RecentJobsTable data={recent.data ?? []} />

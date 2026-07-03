@@ -1,6 +1,9 @@
 import type {
   FunnelEntry,
   RecentJob,
+  ReviewAction,
+  ReviewActionResult,
+  ReviewLists,
   RunLogEntry,
   RunStatus,
   SourceStats,
@@ -34,6 +37,26 @@ export const api = {
     if (!res.ok) throw new Error(`Failed to start run (HTTP ${res.status})`)
     return res.json() as Promise<RunStatus>
   },
-}
 
-export const REVIEW_URL = 'http://127.0.0.1:8765'
+  reviewJobs: () => getJson<ReviewLists>('/api/review/jobs'),
+
+  reviewAction: async (id: number, action: ReviewAction): Promise<ReviewActionResult> => {
+    const res = await fetch(`/api/review/jobs/${id}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    if (!res.ok) throw new Error(`Review action failed (HTTP ${res.status})`)
+    return res.json() as Promise<ReviewActionResult>
+  },
+
+  assistApply: async (id: number): Promise<void> => {
+    const res = await fetch(`/api/review/jobs/${id}/assist`, { method: 'POST' })
+    if (res.status === 409)
+      throw new Error("Assisted apply isn't available for this job's ATS.")
+    if (!res.ok) throw new Error(`Failed to launch assisted apply (HTTP ${res.status})`)
+  },
+
+  resumeUrl: (id: number) => `/api/review/jobs/${id}/resume`,
+  applicationsCsvUrl: '/api/review/applications.csv',
+}

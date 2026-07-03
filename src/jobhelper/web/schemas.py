@@ -1,6 +1,8 @@
 """Pydantic response models — the API contract mirrored by web/src/api/types.ts."""
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel
 
 
@@ -64,6 +66,54 @@ class RecentJob(BaseModel):
     proposed_in_run_id: str | None
     applied_at: str | None
     updated_at: str | None
+
+
+class ReviewJob(BaseModel):
+    """A job as shown on the review board (fields from jobs + review enrichment)."""
+    id: int
+    title: str | None
+    company: str | None
+    location: str | None = None
+    candidate_location: str | None = None
+    remote_type: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_currency: str | None = None
+    url: str | None
+    source: str
+    status: str
+    llm_score: int | None = None
+    display_score: int
+    llm_rationale: str | None = None
+    musthaves_met: list[Any] = []
+    missing: list[Any] = []
+    notes: list[Any] = []
+    screening: dict[str, Any] = {}
+    cover_letter_text: str | None = None
+    has_resume: bool = False
+    ats: str = "generic"
+    can_assist: bool = False
+    date_posted: str | None = None
+    first_seen_at: str | None = None
+    proposed_in_run_id: str | None = None
+    approved_at: str | None = None
+    applied_at: str | None = None
+    updated_at: str | None = None
+
+
+class ReviewLists(BaseModel):
+    pending: list[ReviewJob]
+    applied: list[ReviewJob]
+    skipped: list[ReviewJob]
+
+
+class ReviewActionRequest(BaseModel):
+    action: Literal["applied", "approve", "skip", "reset"]
+
+
+class ReviewActionResult(BaseModel):
+    ok: bool
+    job: ReviewJob
 
 
 class RunStatus(BaseModel):

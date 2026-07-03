@@ -71,7 +71,7 @@ Each proposal shows its fit score, met/missing breakdown, the tailored résumé
 move to history with an undo. It only tracks *your own* manual applications —
 nothing is ever submitted for you.
 
-### Dashboard (metrics + one-click run)
+### Dashboard (metrics + one-click run + review)
 
 A local dashboard shows your job-hunt metrics at a glance — last run, proposed
 today, pending review, applications this week, a 30-day activity chart, pipeline
@@ -86,6 +86,14 @@ python run_ui.py                             # serves http://127.0.0.1:8787
 The React frontend builds to static files that the FastAPI backend serves
 directly, so day-to-day only the one Python process runs. For UI development,
 `npm run dev` inside `web/` gives hot reload and proxies `/api` to the backend.
+
+The dashboard's **Review** page has full parity with the standalone review page
+(same shared action code, identical status transitions): score/rationale/chips,
+cover-letter copy, résumé download, assisted apply, and Mark applied / Approve /
+Skip with undo. After a run finishes, a **Pending review** tile appears right on
+the Runs page with quick actions, and the sidebar badge shows the queue size —
+so the whole find → run → review loop happens at `:8787`. The legacy
+`review.py` page still works if you prefer it.
 
 ### Applications log
 
@@ -199,6 +207,7 @@ python tests\test_screening.py       # offline: screening polarity + option matc
 python tests\test_applog.py          # offline: applications-log upsert/remove
 python tests\test_select_diverse.py  # offline: per-company diversity cap
 python tests\test_web_smoke.py       # in-process: dashboard API + stubbed run + SSE
+python tests\test_web_review_smoke.py # in-process: review API actions on synthetic rows
 ```
 
 ## Roadmap
@@ -211,6 +220,8 @@ python tests\test_web_smoke.py       # in-process: dashboard API + stubbed run +
   forms. Human always submits; never on LinkedIn/Indeed.
 - **Phase 4 — built.** Dashboard UI (React + FastAPI, `run_ui.py`): metrics at a
   glance + execute the daily run with live logs. Tracked as ITEM-2 in personal Jira.
+- **Phase 5 — built.** Review integrated into the dashboard (ITEM-3): Review board
+  + post-run pending tile, same shared action code as the legacy review page.
 - **Semantic scoring** (sentence-transformers) and the **applications log** are on
   by default.
 

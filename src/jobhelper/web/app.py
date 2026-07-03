@@ -12,11 +12,17 @@ from typing import AsyncIterator, Iterator
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
-from starlette.status import HTTP_202_ACCEPTED, HTTP_409_CONFLICT
+from starlette.status import (
+    HTTP_202_ACCEPTED,
+    HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
+    HTTP_500_INTERNAL_SERVER_ERROR,
+)
 
 from .. import db
 from ..util import ROOT
 from . import metrics, schemas
+from . import review as webreview
 from .runner import MANAGER
 
 WEB_DIST = ROOT / "web" / "dist"
@@ -111,6 +117,59 @@ def run_logs(request: Request, after: int = 0) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
+
+
+# ---- Review (same transitions as the legacy review page via review.actions) -----
+@app.get("/api/review/jobs", response_model=schemas.ReviewLists)
+def review_jobs():
+    return webreview.review_lists()
+
+
+@app.post("/api/review/jobs/{job_id}/action",
+          response_model=schemas.ReviewActionResult)
+def review_action(job_id: int, req: schemas.ReviewActionRequest):
+    job = webreview.act(job_id, req.action)
+    if job is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, f"No job with id {job_id}.")
+    return {"ok": True, "job": job}
+
+
+@app.get("/api/review/jobs/{job_id}/resume")
+def review_resume(job_id: int) -> FileResponse:
+    path = webreview.resume_path(job_id)
+    if path is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, "No tailored resume for this job.")
+    return FileResponse(
+        str(path),
+        media_type="application/vnd.openxmlformats-officedocument"
+                   ".wordprocessingml.document",
+        filename=path.name,
+    )
+
+
+@app.post("/api/review/jobs/{job_id}/assist", status_code=HTTP_202_ACCEPTED)
+def review_assist(job_id: int):
+    """Launch the assisted-apply console for this job (fills the form; the
+    human always reviews and submits)."""
+    assistable = webreview.can_assist(job_id)
+    if assistable is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, f"No job with id {job_id}.")
+    if not assistable:
+        raise HTTPException(HTTP_409_CONFLICT,
+                            "Assisted apply is not available for this job's ATS.")
+    if not webreview.launch_assist(job_id):
+        raise HTTPException(HTTP_500_INTERNAL_SERVER_ERROR,
+                            "Failed to launch assisted apply.")
+    return {"launched": True}
+
+
+@app.get("/api/review/applications.csv")
+def review_applications_csv() -> FileResponse:
+    from ..applog import LOG_CSV
+    if not LOG_CSV.exists():
+        raise HTTPException(HTTP_404_NOT_FOUND, "No applications logged yet.")
+    return FileResponse(str(LOG_CSV), media_type="text/csv",
+                        filename="applications_log.csv")
 
 
 # ---- Static frontend (SPA fallback) ---------------------------------------------

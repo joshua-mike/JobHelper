@@ -1,7 +1,6 @@
-import { Activity, ExternalLink, Gauge, Loader2, Play } from 'lucide-react'
+import { Activity, ClipboardCheck, Gauge, Loader2, Play } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { REVIEW_URL } from '../../api/client'
-import { useRunStatus, useStartRun } from '../../api/hooks'
+import { useRunStatus, useStartRun, useSummary } from '../../api/hooks'
 import type { RunStatus } from '../../api/types'
 import { fmtDateTime } from '../../lib/format'
 import { Button } from '../ui/button'
@@ -10,6 +9,7 @@ import { useToast } from '../ui/toast'
 const NAV = [
   { to: '/', label: 'Dashboard', icon: Gauge },
   { to: '/runs', label: 'Runs', icon: Activity },
+  { to: '/review', label: 'Review', icon: ClipboardCheck },
 ]
 
 function StatusPill({ status }: { status?: RunStatus }) {
@@ -35,10 +35,12 @@ function StatusPill({ status }: { status?: RunStatus }) {
 
 export function Shell() {
   const { data: status } = useRunStatus()
+  const { data: summary } = useSummary()
   const startRun = useStartRun()
   const navigate = useNavigate()
   const toast = useToast()
   const running = status?.state === 'running'
+  const pendingReview = summary?.pending_review ?? 0
 
   const onRunNow = () => {
     startRun.mutate(false, {
@@ -75,20 +77,16 @@ export function Shell() {
             >
               <Icon className="h-4 w-4" />
               {label}
+              {to === '/review' && pendingReview > 0 && (
+                <span className="ml-auto rounded-full bg-indigo-500/15 px-2 py-0.5 text-xs font-semibold text-indigo-300 ring-1 ring-inset ring-indigo-500/30">
+                  {pendingReview}
+                </span>
+              )}
             </NavLink>
           ))}
-          <a
-            href={REVIEW_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-900 hover:text-slate-200"
-          >
-            <ExternalLink className="h-4 w-4" />
-            Review page
-          </a>
         </nav>
         <p className="mt-auto px-5 py-4 text-xs text-slate-600">
-          Local only · run <code>review.py</code> for the review page
+          Local only · nothing is ever auto-submitted
         </p>
       </aside>
 

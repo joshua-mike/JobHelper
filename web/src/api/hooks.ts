@@ -1,8 +1,17 @@
 import { useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
+import type { ReviewAction } from './types'
 
-const METRIC_KEYS = ['summary', 'funnel', 'timeline', 'sources', 'runs', 'recentJobs']
+const METRIC_KEYS = [
+  'summary',
+  'funnel',
+  'timeline',
+  'sources',
+  'runs',
+  'recentJobs',
+  'reviewJobs',
+]
 
 export function useSummary() {
   return useQuery({ queryKey: ['summary'], queryFn: () => api.summary() })
@@ -44,6 +53,22 @@ export function useStartRun() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ['runStatus'] })
       void qc.invalidateQueries({ queryKey: ['runs'] })
+    },
+  })
+}
+
+export function useReviewJobs() {
+  return useQuery({ queryKey: ['reviewJobs'], queryFn: () => api.reviewJobs() })
+}
+
+/** Apply a review action; refreshes the board and every metric it feeds. */
+export function useReviewAction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, action }: { id: number; action: ReviewAction }) =>
+      api.reviewAction(id, action),
+    onSuccess: () => {
+      for (const key of METRIC_KEYS) void qc.invalidateQueries({ queryKey: [key] })
     },
   })
 }
