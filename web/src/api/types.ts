@@ -116,3 +116,192 @@ export interface RunStatus {
   log_path: string | null
   line_count: number
 }
+
+// ---- Settings (ITEM-4) -----------------------------------------------------
+
+export type ConfigName = 'profile' | 'sources' | 'criteria'
+
+export interface SettingsStatus {
+  anthropic_available: boolean
+  run_active: boolean
+  profile_exists: boolean
+}
+
+export interface ConfigPayload<T> {
+  name: ConfigName
+  exists: boolean
+  seeded_from_example: boolean
+  data: T | null
+}
+
+export interface SaveResult {
+  ok: boolean
+  changed: boolean
+  applies_next_run: boolean
+  backup: string | null
+}
+
+export interface CriteriaData {
+  daily_target?: number
+  max_per_company?: number
+  scoring?: 'auto' | 'semantic' | 'lexical'
+  llm_shortlist?: number
+  min_score?: number
+  title_include_any?: string[]
+  title_exclude_any?: string[]
+  keywords_any?: string[]
+  keywords_exclude?: string[]
+  remote_required?: boolean
+  onsite_ok_companies?: string[]
+  allowed_location_tokens?: string[]
+  salary_floor?: number
+  exclude_companies?: string[]
+  max_age_days?: number
+  judge_model?: string
+  tailor_model?: string
+  [key: string]: unknown
+}
+
+export interface WorkdayRow {
+  tenant: string
+  dc: string
+  site: string
+  company: string
+}
+
+export interface AtsData {
+  greenhouse?: string[]
+  lever?: string[]
+  ashby?: string[]
+  smartrecruiters?: string[]
+  microsoft?: string[]
+  amazon?: string[]
+  workday?: WorkdayRow[]
+  [key: string]: unknown
+}
+
+export interface SourcesData {
+  aggregators?: Record<string, boolean>
+  ats?: AtsData
+  request_delay_seconds?: number
+  per_source_cap?: number
+  microsoft_per_query?: number
+  amazon_per_query?: number
+  workday_searches?: string[]
+  workday_per_search?: number
+  [key: string]: unknown
+}
+
+export interface AchievementData {
+  text: string
+  skills_used?: string[]
+  verified?: boolean
+}
+
+export interface WorkEntryData {
+  company: string
+  title: string
+  location?: string
+  start_date?: string
+  end_date?: string
+  employment_type?: string
+  summary?: string
+  achievements?: AchievementData[]
+}
+
+export interface EducationData {
+  institution: string
+  degree?: string
+  field?: string
+  grad_date?: string
+  gpa?: number | string | null
+}
+
+export interface HardSkillData {
+  name: string
+  years?: number | null
+  proficiency?: string
+}
+
+export interface CertificationData {
+  name: string
+  issuer?: string
+  date?: string
+  expiry?: string | number
+}
+
+export interface SkillsData {
+  hard_skills?: HardSkillData[]
+  soft_skills?: string[]
+  certifications?: CertificationData[]
+  languages?: string[]
+}
+
+export interface ProfileData {
+  identity?: {
+    full_name?: string
+    email?: string
+    phone?: string
+    city_state?: string
+    linkedin_url?: string
+    portfolio_url?: string
+    work_authorization_status?: string
+    requires_sponsorship?: boolean
+    willing_to_relocate?: boolean
+    earliest_start_date?: string
+    notice_period?: string
+    [key: string]: unknown
+  }
+  compensation?: {
+    desired_salary_min?: number | null
+    desired_salary_max?: number | null
+    currency?: string
+    salary_negotiable?: boolean
+    [key: string]: unknown
+  }
+  summary?: string
+  work_history?: WorkEntryData[]
+  education?: EducationData[]
+  skills?: SkillsData
+  eeo?: Record<string, string>
+  qa_bank?: Record<string, string>
+  [key: string]: unknown
+}
+
+export type SourceKind =
+  | 'remotive'
+  | 'arbeitnow'
+  | 'remoteok'
+  | 'greenhouse'
+  | 'lever'
+  | 'ashby'
+  | 'smartrecruiters'
+  | 'microsoft'
+  | 'amazon'
+  | 'workday'
+
+export interface VerifySourceRequest {
+  kind: SourceKind
+  token?: string
+  entry?: WorkdayRow
+}
+
+export interface VerifySourceResult {
+  ok: boolean
+  count: number
+  sample: string[]
+  company: string | null
+  message: string
+}
+
+export interface SectionNote {
+  section: string
+  action: 'imported' | 'preserved' | 'seeded'
+  detail: string
+}
+
+export interface ResumeImportResult {
+  proposed: ProfileData
+  sections: SectionNote[]
+  model: string
+}

@@ -95,6 +95,25 @@ the Runs page with quick actions, and the sidebar badge shows the queue size —
 so the whole find → run → review loop happens at `:8787`. The legacy
 `review.py` page still works if you prefer it.
 
+### Settings (edit config from the UI)
+
+The dashboard's **Settings** page edits all three config files with structured
+forms — no YAML hand-editing required. Profile (identity, work history,
+skills, EEO, answer bank), Sources (aggregator toggles, every board list
+including Workday tenants, crawl knobs), and Criteria (full key parity,
+grouped). Saves are validated (pydantic), written atomically, preceded by a
+timestamped backup in `data/backups/`, and round-tripped through `ruamel.yaml`
+so the comments and ordering in the files survive. Each source row has a live
+**Verify** button that hits the real board with the real adapter. Mid-run
+saves are allowed — they apply from the next run.
+
+**Resume import:** upload a `.docx`/`.txt`/`.md` resume and Claude extracts a
+profile proposal (never inventing facts); resume-derived sections are
+proposed while compensation / EEO / answer-bank / work-authorization fields
+are preserved (or seeded from the example on a fresh clone). You preview the
+sectional merge, apply it to the form, review, and only then save. Works on a
+fresh clone with no `profile.yaml`; requires `ANTHROPIC_API_KEY`.
+
 ### Applications log
 
 Every time you mark a job applied (review page or assisted apply), a row is
@@ -125,7 +144,9 @@ To add a target company's ATS board, find its slug in the public board URL:
 - Lever → `jobs.lever.co/<slug>`
 - Ashby → `jobs.ashbyhq.com/<slug>`
 
-and add `<slug>` under the matching key in `config/sources.yaml`.
+and add `<slug>` under the matching key in `config/sources.yaml` — or use the
+dashboard's **Settings → Sources** form, which has a per-row live **Verify**
+button so a typo'd (or wrong-case) slug is caught immediately.
 
 ## Schedule it (Windows Task Scheduler)
 
@@ -208,6 +229,8 @@ python tests\test_applog.py          # offline: applications-log upsert/remove
 python tests\test_select_diverse.py  # offline: per-company diversity cap
 python tests\test_web_smoke.py       # in-process: dashboard API + stubbed run + SSE
 python tests\test_web_review_smoke.py # in-process: review API actions on synthetic rows
+python tests\test_settings_store.py  # offline: comment-preserving YAML saves + validation
+python tests\test_web_settings_smoke.py # in-process: settings API + stubbed LLM/adapters
 ```
 
 ## Roadmap
@@ -222,6 +245,9 @@ python tests\test_web_review_smoke.py # in-process: review API actions on synthe
   glance + execute the daily run with live logs. Tracked as ITEM-2 in personal Jira.
 - **Phase 5 — built.** Review integrated into the dashboard (ITEM-3): Review board
   + post-run pending tile, same shared action code as the legacy review page.
+- **Phase 6 — built.** Settings page (ITEM-4): edit profile/sources/criteria from
+  the UI with comment-preserving saves + backups, per-source live Verify, and
+  Claude-powered resume import to bootstrap or refresh the profile.
 - **Semantic scoring** (sentence-transformers) and the **applications log** are on
   by default.
 

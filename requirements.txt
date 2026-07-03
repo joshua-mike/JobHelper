@@ -17,6 +17,10 @@ fastapi>=0.110
 uvicorn>=0.29
 python-multipart>=0.0.9
 
+# Settings page (ITEM-4): comment/order-preserving YAML writes for config files.
+# Only the save path uses ruamel; the pipeline read path stays on PyYAML.
+ruamel.yaml>=0.18
+
 # Phase 3 — assisted apply (browser fills the form; you click Submit). After
 # installing, run once:  python -m playwright install chromium
 playwright>=1.40

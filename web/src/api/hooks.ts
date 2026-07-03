@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { ReviewAction } from './types'
+import type { ConfigName, ReviewAction, VerifySourceRequest } from './types'
 
 const METRIC_KEYS = [
   'summary',
@@ -79,4 +79,42 @@ export function useInvalidateMetrics() {
   return useCallback(() => {
     for (const key of METRIC_KEYS) void qc.invalidateQueries({ queryKey: [key] })
   }, [qc])
+}
+
+// ---- Settings ---------------------------------------------------------------
+export function useSettingsStatus() {
+  return useQuery({
+    queryKey: ['settingsStatus'],
+    queryFn: () => api.settingsStatus(),
+    refetchInterval: 15000, // run_active flips when a run starts/ends
+  })
+}
+
+export function useConfig<T>(name: ConfigName) {
+  return useQuery({
+    queryKey: ['config', name],
+    queryFn: () => api.getConfig<T>(name),
+    staleTime: 60_000,
+  })
+}
+
+export function useSaveConfig<T>(name: ConfigName) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: T) => api.saveConfig(name, data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['config', name] })
+      void qc.invalidateQueries({ queryKey: ['settingsStatus'] })
+    },
+  })
+}
+
+export function useVerifySource() {
+  return useMutation({
+    mutationFn: (req: VerifySourceRequest) => api.verifySource(req),
+  })
+}
+
+export function useImportResume() {
+  return useMutation({ mutationFn: (file: File) => api.importResume(file) })
 }

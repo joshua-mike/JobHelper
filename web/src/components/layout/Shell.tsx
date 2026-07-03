@@ -1,4 +1,4 @@
-import { Activity, ClipboardCheck, Gauge, Loader2, Play } from 'lucide-react'
+import { Activity, ClipboardCheck, Gauge, Loader2, Play, Settings } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useRunStatus, useStartRun, useSummary } from '../../api/hooks'
 import type { RunStatus } from '../../api/types'
@@ -10,6 +10,7 @@ const NAV = [
   { to: '/', label: 'Dashboard', icon: Gauge },
   { to: '/runs', label: 'Runs', icon: Activity },
   { to: '/review', label: 'Review', icon: ClipboardCheck },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
 function StatusPill({ status }: { status?: RunStatus }) {

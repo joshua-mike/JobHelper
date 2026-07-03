@@ -5,6 +5,7 @@ import { ToastProvider } from './components/ui/toast'
 import DashboardPage from './pages/DashboardPage'
 import ReviewPage from './pages/ReviewPage'
 import RunsPage from './pages/RunsPage'
+import SettingsPage from './pages/SettingsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,6 +23,7 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="/runs" element={<RunsPage />} />
               <Route path="/review" element={<ReviewPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

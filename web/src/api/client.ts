@@ -1,14 +1,21 @@
 import type {
+  ConfigName,
+  ConfigPayload,
   FunnelEntry,
   RecentJob,
+  ResumeImportResult,
   ReviewAction,
   ReviewActionResult,
   ReviewLists,
   RunLogEntry,
   RunStatus,
+  SaveResult,
+  SettingsStatus,
   SourceStats,
   Summary,
   TimelinePoint,
+  VerifySourceRequest,
+  VerifySourceResult,
 } from './types'
 
 // Same-origin in production (FastAPI serves the build); Vite proxies in dev.
@@ -16,6 +23,31 @@ async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`)
   return res.json() as Promise<T>
+}
+
+/** Error carrying per-field validation messages from a 422 response. */
+export class ApiError extends Error {
+  details?: string[]
+}
+
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  const err = new ApiError(fallback)
+  try {
+    const body = await res.json()
+    if (typeof body.detail === 'string') {
+      err.message = body.detail
+    } else if (Array.isArray(body.detail)) {
+      // pydantic errors: {loc: ["work_history", 0, "company"], msg: "..."}
+      err.details = body.detail.map(
+        (d: { loc?: (string | number)[]; msg?: string }) =>
+          `${(d.loc ?? []).join('.') || 'config'}: ${d.msg ?? 'invalid'}`,
+      )
+      err.message = 'Validation failed — nothing was saved.'
+    }
+  } catch {
+    /* keep fallback message */
+  }
+  throw err
 }
 
 export const api = {
@@ -59,4 +91,41 @@ export const api = {
 
   resumeUrl: (id: number) => `/api/review/jobs/${id}/resume`,
   applicationsCsvUrl: '/api/review/applications.csv',
+
+  // ---- Settings -------------------------------------------------------------
+  settingsStatus: () => getJson<SettingsStatus>('/api/settings'),
+
+  getConfig: <T>(name: ConfigName) =>
+    getJson<ConfigPayload<T>>(`/api/settings/${name}`),
+
+  saveConfig: async <T>(name: ConfigName, data: T): Promise<SaveResult> => {
+    const res = await fetch(`/api/settings/${name}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!res.ok) await throwApiError(res, `Save failed (HTTP ${res.status})`)
+    return res.json() as Promise<SaveResult>
+  },
+
+  verifySource: async (req: VerifySourceRequest): Promise<VerifySourceResult> => {
+    const res = await fetch('/api/settings/sources/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    })
+    if (!res.ok) await throwApiError(res, `Verify failed (HTTP ${res.status})`)
+    return res.json() as Promise<VerifySourceResult>
+  },
+
+  importResume: async (file: File): Promise<ResumeImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch('/api/settings/profile/import-resume', {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) await throwApiError(res, `Import failed (HTTP ${res.status})`)
+    return res.json() as Promise<ResumeImportResult>
+  },
 }

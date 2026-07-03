@@ -20,16 +20,20 @@ from starlette.status import (
 )
 
 from .. import db
+from ..config import load_env
 from ..util import ROOT
 from . import metrics, schemas
 from . import review as webreview
 from .runner import MANAGER
+from .settings_api import router as settings_router
 
 WEB_DIST = ROOT / "web" / "dist"
 
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # .env so the settings page can report/use ANTHROPIC_API_KEY (resume import).
+    load_env()
     conn = db.connect()
     db.init_db(conn)
     conn.close()
@@ -170,6 +174,10 @@ def review_applications_csv() -> FileResponse:
         raise HTTPException(HTTP_404_NOT_FOUND, "No applications logged yet.")
     return FileResponse(str(LOG_CSV), media_type="text/csv",
                         filename="applications_log.csv")
+
+
+# ---- Settings (config editing + resume import + source verify) -------------------
+app.include_router(settings_router)
 
 
 # ---- Static frontend (SPA fallback) ---------------------------------------------

@@ -128,3 +128,58 @@ class RunStatus(BaseModel):
 
 class StartRunRequest(BaseModel):
     use_cache: bool = False
+
+
+# ---- Settings (ITEM-4) -----------------------------------------------------------
+ConfigName = Literal["profile", "sources", "criteria"]
+
+
+class SettingsStatus(BaseModel):
+    anthropic_available: bool
+    run_active: bool
+    profile_exists: bool
+
+
+class ConfigPayload(BaseModel):
+    name: ConfigName
+    exists: bool
+    # Fresh clone: profile GET returns the example file's data so the form has
+    # a starting point, flagged so the UI can say "not saved yet".
+    seeded_from_example: bool = False
+    data: dict[str, Any] | None
+
+
+class SaveResult(BaseModel):
+    ok: bool = True
+    changed: bool
+    # The daily run is a child process that reads config at launch; a save
+    # during a run only applies from the next run.
+    applies_next_run: bool
+    backup: str | None
+
+
+class VerifySourceRequest(BaseModel):
+    kind: Literal["remotive", "arbeitnow", "remoteok", "greenhouse", "lever",
+                  "ashby", "smartrecruiters", "microsoft", "amazon", "workday"]
+    token: str | None = None                 # board slug or search query
+    entry: dict[str, Any] | None = None      # workday {tenant, dc, site, company}
+
+
+class VerifySourceResult(BaseModel):
+    ok: bool
+    count: int
+    sample: list[str]
+    company: str | None
+    message: str
+
+
+class SectionNote(BaseModel):
+    section: str
+    action: Literal["imported", "preserved", "seeded"]
+    detail: str
+
+
+class ResumeImportResult(BaseModel):
+    proposed: dict[str, Any]
+    sections: list[SectionNote]
+    model: str
