@@ -122,16 +122,21 @@ ats:
     - "software development engineer"
     - ".net"
     - "c#"
-  # USAJOBS — the official federal-jobs API (data.usajobs.gov); the ONLY keyed
-  # source. Register free at https://developer.usajobs.gov/apirequest and set
-  # USAJOBS_API_KEY + USAJOBS_USER_AGENT (your registered email) in .env; the
-  # adapter skips itself gracefully while the key is missing. Items are SEARCH
-  # QUERIES; the adapter requests remote-eligible roles only (RemoteIndicator).
-  # Your active DoD clearance is a strong asset on this board.
+  # USAJOBS — the official federal-jobs API (data.usajobs.gov). Register free at
+  # https://developer.usajobs.gov/apirequest and set USAJOBS_API_KEY +
+  # USAJOBS_USER_AGENT (your registered email) in .env; the adapter skips itself
+  # gracefully while the key is missing. Items are SEARCH QUERIES; the adapter
+  # requests strictly-REMOTE roles (RemoteIndicator — telework-eligible doesn't
+  # count). Queries are deliberately BROAD: the feds title software jobs
+  # "IT Specialist (APPSW)" / "Computer Scientist", "#" is eaten by the search
+  # ("c#" degenerates to noise), and the title/keyword criteria filters supply
+  # the precision. Probed 2026-07-05: remote+public software inventory was ZERO
+  # across all vocabularies (post-RTO federal reality) — this is a low-volume
+  # watch lane that will catch postings when they appear; clearance is an asset.
   usajobs:
-    - "software engineer"
-    - ".net"
-    - "c#"
+    - "software"
+    - "developer"
+    - "IT specialist"
   # Adzuna (ITEM-6) — keyed aggregator (developer.adzuna.com), the legal
   # Indeed-equivalent lane: long-tail/SMB coverage + harvester feedstock.
   # Set ADZUNA_APP_ID + ADZUNA_APP_KEY in .env. Items are SEARCH QUERIES; the
