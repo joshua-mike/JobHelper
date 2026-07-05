@@ -179,10 +179,12 @@ class AtsConfig(_Permissive):
     smartrecruiters: list[str] | None = None
     microsoft: list[str] | None = None  # search queries, not slugs
     amazon: list[str] | None = None     # search queries, not slugs
+    usajobs: list[str] | None = None    # search queries, not slugs (keyed source)
     workday: list[WorkdayEntry] | None = None
 
     _prune = field_validator(
-        "greenhouse", "lever", "ashby", "smartrecruiters", "microsoft", "amazon"
+        "greenhouse", "lever", "ashby", "smartrecruiters", "microsoft", "amazon",
+        "usajobs"
     )(_prune_blank)
 
 
@@ -193,6 +195,7 @@ class SourcesConfig(_Permissive):
     per_source_cap: int | None = Field(None, ge=1, le=10000)
     microsoft_per_query: int | None = Field(None, ge=1, le=500)
     amazon_per_query: int | None = Field(None, ge=1, le=500)
+    usajobs_per_query: int | None = Field(None, ge=1, le=500)
     workday_searches: list[str] | None = None
     workday_per_search: int | None = Field(None, ge=1, le=500)
 

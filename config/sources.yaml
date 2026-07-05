@@ -1,5 +1,5 @@
 # =============================================================================
-# SOURCES  —  where jobs come from. Remote-only, all keyless.
+# SOURCES  —  where jobs come from. Remote-only; keyless except USAJOBS (free key).
 #
 # The remote aggregator feeds (Remotive, Arbeitnow, RemoteOK) need no config and
 # give broad coverage immediately. The ATS feeds (Greenhouse/Lever/Ashby) pull
@@ -77,6 +77,7 @@ ats:
   # skews consumer/enterprise (lighter on defense), so curate to your targets.
   smartrecruiters:
     - "Visa"                       # payments/fintech (CASE-SENSITIVE slug) — starter; replace/extend
+    - "Experian"                   # data/credit — .NET-heavy enterprise; 586 postings live 2026-07
   # Microsoft careers (Eightfold "pcsx" API). NOTE: items here are SEARCH QUERIES,
   # not company slugs — the adapter pulls the top results per query, fetches each
   # job's full description, and tags remote/hybrid/onsite from the work-site field.
@@ -100,11 +101,34 @@ ats:
     - { tenant: "leidos",      dc: "wd5", site: "External",                        company: "Leidos" }
     - { tenant: "nvidia",      dc: "wd5", site: "NVIDIAExternalCareerSite",        company: "NVIDIA" }
     - { tenant: "mastercard",  dc: "wd1", site: "CorporateCareers",               company: "Mastercard" }
+    # —— Defense/federal expansion, live-verified 2026-07-05 (total for "software
+    #    engineer" at verify time). Note the non-obvious slugs: Amentum still runs
+    #    on the legacy PAE tenant, RTX is under the shared "globalhr" tenant, and
+    #    Parsons' site segment is literally "Search".
+    - { tenant: "gdit",        dc: "wd5", site: "External_Career_Site",           company: "GDIT" }                # 446
+    - { tenant: "pae",         dc: "wd1", site: "Amentum_Careers",                company: "Amentum" }             # 471
+    - { tenant: "kbr",         dc: "wd5", site: "KBR_Careers",                    company: "KBR" }                 # 300
+    - { tenant: "icf",         dc: "wd5", site: "ICFExternal_Career_Site",        company: "ICF" }                 # 79, remote-friendly
+    - { tenant: "parsons",     dc: "wd5", site: "Search",                         company: "Parsons" }             # 811
+    - { tenant: "globalhr",    dc: "wd5", site: "REC_RTX_Ext_Gateway",            company: "RTX (Raytheon)" }      # 1463, mostly onsite
+    # Probed & NOT viable on Workday (don't re-guess): ManTech + MITRE tenants
+    # respond but expose 0 public listings; SAIC (own portal), L3Harris (Phenom),
+    # Peraton + Maximus (iCIMS) aren't on Workday at all.
   # Amazon careers (amazon.jobs). NOTE: items here are SEARCH QUERIES, not slugs.
   # Mostly office-based (Seattle/Bellevue/Arlington); remote-only filtering keeps
   # only "Virtual Location" roles unless you add "Amazon" to onsite_ok_companies.
   amazon:
     - "software development engineer"
+    - ".net"
+    - "c#"
+  # USAJOBS — the official federal-jobs API (data.usajobs.gov); the ONLY keyed
+  # source. Register free at https://developer.usajobs.gov/apirequest and set
+  # USAJOBS_API_KEY + USAJOBS_USER_AGENT (your registered email) in .env; the
+  # adapter skips itself gracefully while the key is missing. Items are SEARCH
+  # QUERIES; the adapter requests remote-eligible roles only (RemoteIndicator).
+  # Your active DoD clearance is a strong asset on this board.
+  usajobs:
+    - "software engineer"
     - ".net"
     - "c#"
   # Not recovered: Ad Hoc (moved to Workable), Granicus (Lever JSON API disabled),
@@ -118,6 +142,8 @@ per_source_cap: 400
 microsoft_per_query: 40
 # Amazon only: top N results pulled per search query.
 amazon_per_query: 40
+# USAJOBS only: results requested per search query (API max 500).
+usajobs_per_query: 50
 # Workday only: search terms applied to EACH tenant, and the cap per term. Workday
 # boards are large, so these scope the crawl to relevant roles (kept low-volume).
 workday_searches:

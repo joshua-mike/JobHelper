@@ -19,6 +19,7 @@ from starlette.status import (
     HTTP_502_BAD_GATEWAY,
 )
 
+from .. import db, harvest
 from ..config import has_anthropic
 from ..llm import LLM
 from ..util import ROOT
@@ -111,6 +112,82 @@ def verify_source(req: schemas.VerifySourceRequest):
         entry=entry,
         searches=sources_cfg.get("workday_searches") or None,
     )
+
+
+# ---- Source suggestions (ITEM-5 harvester) --------------------------------------
+def _suggestions_conn():
+    conn = db.connect()
+    db.init_db(conn)
+    return conn
+
+
+def _rel_backup(backup_path) -> str | None:
+    if backup_path is None:
+        return None
+    try:
+        return backup_path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(backup_path)
+
+
+@router.get("/sources/suggestions",
+            response_model=list[schemas.SourceSuggestion])
+def list_source_suggestions(all: bool = False):
+    conn = _suggestions_conn()
+    try:
+        return harvest.list_suggestions(conn, include_all=all)
+    finally:
+        conn.close()
+
+
+@router.post("/sources/suggestions/scan",
+             response_model=schemas.SuggestionScanResult)
+def scan_source_suggestions():
+    """Run one harvester pass (live verifies — takes a few seconds)."""
+    conn = _suggestions_conn()
+    try:
+        criteria = settings_store.load_data("criteria") or {}
+        sources_cfg = settings_store.load_data("sources") or {}
+        created = harvest.scan(conn, sources_cfg, criteria)
+        return {"new": len(created),
+                "suggestions": harvest.list_suggestions(conn)}
+    finally:
+        conn.close()
+
+
+@router.post("/sources/suggestions/{sid}/accept",
+             response_model=schemas.SuggestionActionResult)
+def accept_source_suggestion(sid: int):
+    conn = _suggestions_conn()
+    try:
+        s = harvest.get_suggestion(conn, sid)
+        if not s:
+            raise HTTPException(HTTP_404_NOT_FOUND, "No such suggestion.")
+        if s["status"] != "suggested":
+            raise HTTPException(HTTP_409_CONFLICT,
+                                f"Suggestion is already {s['status']}.")
+        backup_path, changed = harvest.merge_accept(
+            s["kind"], s["token"], s.get("entry"))
+        harvest.set_status(conn, sid, "accepted")
+        return {"ok": True, "suggestion": harvest.get_suggestion(conn, sid),
+                "applies_next_run": changed and _run_active(),
+                "backup": _rel_backup(backup_path)}
+    finally:
+        conn.close()
+
+
+@router.post("/sources/suggestions/{sid}/dismiss",
+             response_model=schemas.SuggestionActionResult)
+def dismiss_source_suggestion(sid: int):
+    conn = _suggestions_conn()
+    try:
+        s = harvest.get_suggestion(conn, sid)
+        if not s:
+            raise HTTPException(HTTP_404_NOT_FOUND, "No such suggestion.")
+        harvest.set_status(conn, sid, "dismissed")
+        return {"ok": True, "suggestion": harvest.get_suggestion(conn, sid)}
+    finally:
+        conn.close()
 
 
 @router.post("/profile/import-resume", response_model=schemas.ResumeImportResult)

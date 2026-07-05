@@ -49,6 +49,23 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 
+CREATE TABLE IF NOT EXISTS source_suggestions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind            TEXT NOT NULL,
+    token           TEXT NOT NULL,
+    entry           TEXT,           -- JSON: workday {tenant,dc,site,company}
+    company         TEXT,
+    evidence_count  INTEGER DEFAULT 0,
+    best_score      INTEGER,
+    live_count      INTEGER,
+    sample          TEXT,           -- JSON array of live job titles
+    via             TEXT DEFAULT 'url',  -- url | redirect | guess
+    status          TEXT NOT NULL DEFAULT 'suggested',  -- suggested|accepted|dismissed
+    created_at      TEXT,
+    updated_at      TEXT,
+    UNIQUE(kind, token)
+);
+
 CREATE TABLE IF NOT EXISTS run_log (
     run_id      TEXT PRIMARY KEY,
     started_at  TEXT,

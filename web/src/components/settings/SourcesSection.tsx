@@ -66,6 +66,12 @@ const BOARD_KINDS: {
     hint: 'Items are SEARCH QUERIES; mostly office-based unless allowed in criteria.',
     placeholder: 'e.g. .net',
   },
+  {
+    kind: 'usajobs',
+    title: 'USAJOBS (federal) — search queries',
+    hint: 'Items are SEARCH QUERIES; remote-eligible roles only. Needs USAJOBS_API_KEY + USAJOBS_USER_AGENT in .env — free key at developer.usajobs.gov/apirequest.',
+    placeholder: 'e.g. software engineer',
+  },
 ]
 
 const EMPTY_WD: WorkdayRow = { tenant: '', dc: '', site: '', company: '' }
@@ -297,6 +303,16 @@ export function SourcesSection() {
               min={1}
               max={500}
               onChange={(v) => update((d) => void (d.amazon_per_query = v ?? undefined))}
+            />
+          </Field>
+          <Field label="USAJOBS: results per query">
+            <NumberInput
+              value={draft.usajobs_per_query}
+              min={1}
+              max={500}
+              onChange={(v) =>
+                update((d) => void (d.usajobs_per_query = v ?? undefined))
+              }
             />
           </Field>
           <Field label="Workday: results per search term">

@@ -160,7 +160,8 @@ class SaveResult(BaseModel):
 
 class VerifySourceRequest(BaseModel):
     kind: Literal["remotive", "arbeitnow", "remoteok", "greenhouse", "lever",
-                  "ashby", "smartrecruiters", "microsoft", "amazon", "workday"]
+                  "ashby", "smartrecruiters", "microsoft", "amazon", "workday",
+                  "usajobs"]
     token: str | None = None                 # board slug or search query
     entry: dict[str, Any] | None = None      # workday {tenant, dc, site, company}
 
@@ -171,6 +172,35 @@ class VerifySourceResult(BaseModel):
     sample: list[str]
     company: str | None
     message: str
+
+
+class SourceSuggestion(BaseModel):
+    """A harvested board candidate awaiting review (ITEM-5)."""
+    id: int
+    kind: str
+    token: str
+    entry: dict[str, Any] | None = None      # workday {tenant, dc, site, company}
+    company: str | None = None
+    evidence_count: int = 0
+    best_score: int | None = None
+    live_count: int | None = None
+    sample: list[str] = []
+    via: Literal["url", "redirect", "guess"] = "url"
+    status: Literal["suggested", "accepted", "dismissed"] = "suggested"
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class SuggestionScanResult(BaseModel):
+    new: int
+    suggestions: list[SourceSuggestion]
+
+
+class SuggestionActionResult(BaseModel):
+    ok: bool = True
+    suggestion: SourceSuggestion
+    applies_next_run: bool = False
+    backup: str | None = None
 
 
 class SectionNote(BaseModel):

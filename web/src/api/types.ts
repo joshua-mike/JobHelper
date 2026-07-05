@@ -176,6 +176,7 @@ export interface AtsData {
   smartrecruiters?: string[]
   microsoft?: string[]
   amazon?: string[]
+  usajobs?: string[]
   workday?: WorkdayRow[]
   [key: string]: unknown
 }
@@ -187,6 +188,7 @@ export interface SourcesData {
   per_source_cap?: number
   microsoft_per_query?: number
   amazon_per_query?: number
+  usajobs_per_query?: number
   workday_searches?: string[]
   workday_per_search?: number
   [key: string]: unknown
@@ -279,6 +281,7 @@ export type SourceKind =
   | 'microsoft'
   | 'amazon'
   | 'workday'
+  | 'usajobs'
 
 export interface VerifySourceRequest {
   kind: SourceKind

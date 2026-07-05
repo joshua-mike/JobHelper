@@ -14,6 +14,7 @@ from .microsoft import MicrosoftSource
 from .remoteok import RemoteOKSource
 from .remotive import RemotiveSource
 from .smartrecruiters import SmartRecruitersSource
+from .usajobs import USAJobsSource
 from .workday import WorkdaySource
 
 log = get_logger()
@@ -60,6 +61,11 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False) -> list[
     if ats_cfg.get("amazon"):
         per_query = int(sources_cfg.get("amazon_per_query", 40))
         sources.append(AmazonSource(fetcher, cap, list(ats_cfg["amazon"]), per_query))
+    # USAJOBS: the list items are SEARCH QUERIES; needs USAJOBS_API_KEY in .env
+    # (the adapter skips itself with a log hint when the key is missing).
+    if ats_cfg.get("usajobs"):
+        per_query = int(sources_cfg.get("usajobs_per_query", 50))
+        sources.append(USAJobsSource(fetcher, cap, list(ats_cfg["usajobs"]), per_query))
 
     log.info("Enabled sources: %s", ", ".join(s.name for s in sources) or "(none)")
     return sources

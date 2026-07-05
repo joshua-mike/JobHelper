@@ -12,6 +12,7 @@ an exception — the message says so.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from ..sources.amazon import AmazonSource
@@ -24,11 +25,12 @@ from ..sources.microsoft import MicrosoftSource
 from ..sources.remoteok import RemoteOKSource
 from ..sources.remotive import RemotiveSource
 from ..sources.smartrecruiters import SmartRecruitersSource
+from ..sources.usajobs import REGISTER_URL, USAJobsSource
 from ..sources.workday import WorkdaySource
 
 AGGREGATOR_KINDS = ("remotive", "arbeitnow", "remoteok")
 TOKEN_KINDS = ("greenhouse", "lever", "ashby", "smartrecruiters",
-               "microsoft", "amazon")
+               "microsoft", "amazon", "usajobs")
 ALL_KINDS = AGGREGATOR_KINDS + TOKEN_KINDS + ("workday",)
 
 _CAP = 50          # plenty to prove a board is alive, small enough to stay quick
@@ -56,6 +58,8 @@ def _build(kind: str, token: str | None, entry: dict[str, Any] | None,
         return MicrosoftSource(fetcher, _QUERY_CAP, [token], _QUERY_CAP)
     if kind == "amazon":
         return AmazonSource(fetcher, _QUERY_CAP, [token], _QUERY_CAP)
+    if kind == "usajobs":
+        return USAJobsSource(fetcher, _QUERY_CAP, [token], _QUERY_CAP)
     if kind == "workday":
         # One search term is enough to prove the tenant/dc/site triple works.
         terms = [searches[0]] if searches else ["software engineer"]
@@ -66,6 +70,10 @@ def _build(kind: str, token: str | None, entry: dict[str, Any] | None,
 def verify(kind: str, token: str | None = None,
            entry: dict[str, Any] | None = None,
            searches: list[str] | None = None) -> dict[str, Any]:
+    if kind == "usajobs" and not os.environ.get("USAJOBS_API_KEY", "").strip():
+        return {"ok": False, "count": 0, "sample": [], "company": None,
+                "message": f"USAJOBS_API_KEY not set — get a free key at "
+                           f"{REGISTER_URL}, add it to .env, restart the dashboard."}
     fetcher = Fetcher(delay=0.2, timeout=15.0, use_cache=False, max_retries=1)
     try:
         source = _build(kind, token, entry, searches, fetcher)
@@ -78,11 +86,13 @@ def verify(kind: str, token: str | None = None,
 
     count = len(jobs)
     if count == 0:
-        hint = ("no results for this query" if kind in ("microsoft", "amazon")
+        hint = ("no results for this query" if kind in ("microsoft", "amazon",
+                                                        "usajobs")
                 else "check the slug (they're case-sensitive) — or the board is empty")
         return {"ok": False, "count": 0, "sample": [], "company": None,
                 "message": f"0 jobs returned — {hint}."}
-    capped = count >= (source.cap if kind not in ("microsoft", "amazon", "workday")
+    capped = count >= (source.cap
+                       if kind not in ("microsoft", "amazon", "workday", "usajobs")
                        else _QUERY_CAP)
     return {
         "ok": True,
