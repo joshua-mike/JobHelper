@@ -12,6 +12,9 @@ import type {
   SaveResult,
   SettingsStatus,
   SourceStats,
+  SourceSuggestion,
+  SuggestionActionResult,
+  SuggestionScanResult,
   Summary,
   TimelinePoint,
   VerifySourceRequest,
@@ -106,6 +109,28 @@ export const api = {
     })
     if (!res.ok) await throwApiError(res, `Save failed (HTTP ${res.status})`)
     return res.json() as Promise<SaveResult>
+  },
+
+  suggestions: () =>
+    getJson<SourceSuggestion[]>('/api/settings/sources/suggestions'),
+
+  scanSuggestions: async (): Promise<SuggestionScanResult> => {
+    const res = await fetch('/api/settings/sources/suggestions/scan', {
+      method: 'POST',
+    })
+    if (!res.ok) await throwApiError(res, `Scan failed (HTTP ${res.status})`)
+    return res.json() as Promise<SuggestionScanResult>
+  },
+
+  suggestionAction: async (
+    id: number,
+    action: 'accept' | 'dismiss',
+  ): Promise<SuggestionActionResult> => {
+    const res = await fetch(`/api/settings/sources/suggestions/${id}/${action}`, {
+      method: 'POST',
+    })
+    if (!res.ok) await throwApiError(res, `${action} failed (HTTP ${res.status})`)
+    return res.json() as Promise<SuggestionActionResult>
   },
 
   verifySource: async (req: VerifySourceRequest): Promise<VerifySourceResult> => {

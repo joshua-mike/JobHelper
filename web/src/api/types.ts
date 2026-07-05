@@ -300,6 +300,34 @@ export interface VerifySourceResult {
   message: string
 }
 
+export interface SourceSuggestion {
+  id: number
+  kind: string
+  token: string
+  entry: WorkdayRow | null
+  company: string | null
+  evidence_count: number
+  best_score: number | null
+  live_count: number | null
+  sample: string[]
+  via: 'url' | 'redirect' | 'guess'
+  status: 'suggested' | 'accepted' | 'dismissed'
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface SuggestionScanResult {
+  new: number
+  suggestions: SourceSuggestion[]
+}
+
+export interface SuggestionActionResult {
+  ok: boolean
+  suggestion: SourceSuggestion
+  applies_next_run: boolean
+  backup: string | null
+}
+
 export interface SectionNote {
   section: string
   action: 'imported' | 'preserved' | 'seeded'

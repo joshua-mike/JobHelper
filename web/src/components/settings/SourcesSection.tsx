@@ -1,4 +1,4 @@
-import { Loader2, Plus, X } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { ApiError } from '../../api/client'
 import { useConfig, useSaveConfig, useVerifySource } from '../../api/hooks'
@@ -9,13 +9,14 @@ import { Switch } from '../ui/switch'
 import { useToast } from '../ui/toast'
 import {
   Field,
-  inputCls,
   NumberInput,
   SaveBar,
   StringListEditor,
   VerifyBadge,
   type VerifyState,
 } from './fields'
+import { RosterTable } from './RosterTable'
+import { SuggestionsInbox } from './SuggestionsInbox'
 import { useDraft } from './useDraft'
 
 const AGGREGATORS: { key: string; label: string; hint: string }[] = [
@@ -24,36 +25,14 @@ const AGGREGATORS: { key: string; label: string; hint: string }[] = [
   { key: 'remoteok', label: 'RemoteOK', hint: 'remoteok.com API' },
 ]
 
-const BOARD_KINDS: {
+/** Query-driven lanes (search terms, not per-company boards) keep their own cards;
+ * the per-company boards live in the RosterTable. */
+const QUERY_KINDS: {
   kind: SourceKind
   title: string
   hint: string
   placeholder: string
 }[] = [
-  {
-    kind: 'greenhouse',
-    title: 'Greenhouse boards',
-    hint: 'Board token from job-boards.greenhouse.io/<token>.',
-    placeholder: 'e.g. perfectserve',
-  },
-  {
-    kind: 'lever',
-    title: 'Lever boards',
-    hint: 'Site slug from jobs.lever.co/<site> — CASE-SENSITIVE.',
-    placeholder: 'e.g. Mediafly',
-  },
-  {
-    kind: 'ashby',
-    title: 'Ashby boards',
-    hint: 'Client slug from jobs.ashbyhq.com/<client>.',
-    placeholder: 'e.g. delinea',
-  },
-  {
-    kind: 'smartrecruiters',
-    title: 'SmartRecruiters companies',
-    hint: 'Company slug from jobs.smartrecruiters.com/<slug> — CASE-SENSITIVE.',
-    placeholder: 'e.g. Visa',
-  },
   {
     kind: 'microsoft',
     title: 'Microsoft careers — search queries',
@@ -79,8 +58,6 @@ const BOARD_KINDS: {
     placeholder: 'e.g. c#',
   },
 ]
-
-const EMPTY_WD: WorkdayRow = { tenant: '', dc: '', site: '', company: '' }
 
 export function SourcesSection() {
   const query = useConfig<SourcesData>('sources')
@@ -141,7 +118,6 @@ export function SourcesSection() {
 
   const errors =
     save.error instanceof ApiError && save.error.details ? save.error.details : []
-  const workday = draft.ats?.workday ?? []
 
   return (
     <div className="space-y-4">
@@ -178,7 +154,16 @@ export function SourcesSection() {
         </div>
       </Card>
 
-      {BOARD_KINDS.map(({ kind, title, hint, placeholder }) => (
+      <SuggestionsInbox rosterDirty={dirty} onAccepted={clear} />
+
+      <RosterTable
+        draft={draft}
+        update={update}
+        runVerify={runVerify}
+        verifyStates={verifyStates}
+      />
+
+      {QUERY_KINDS.map(({ kind, title, hint, placeholder }) => (
         <Card key={kind} title={title}>
           <p className="mb-3 text-xs text-slate-500">{hint}</p>
           <StringListEditor
@@ -195,82 +180,6 @@ export function SourcesSection() {
           />
         </Card>
       ))}
-
-      <Card title="Workday tenants">
-        <p className="mb-3 text-xs text-slate-500">
-          Three slugs from the careers URL{' '}
-          <code className="text-slate-400">
-            https://&#123;tenant&#125;.&#123;dc&#125;.myworkdayjobs.com/&#123;site&#125;
-          </code>
-          ; the crawl is scoped by the search terms below.
-        </p>
-        <div className="space-y-2">
-          {workday.map((row, i) => (
-            <div key={i}>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {(['tenant', 'dc', 'site', 'company'] as const).map((f) => (
-                  <input
-                    key={f}
-                    type="text"
-                    className={`${inputCls} ${f === 'dc' ? 'w-16 shrink-0' : 'min-w-28 flex-1'} font-mono`}
-                    placeholder={f}
-                    value={row[f] ?? ''}
-                    onChange={(e) =>
-                      update((d) => {
-                        const rows = [...(d.ats?.workday ?? [])]
-                        rows[i] = { ...rows[i], [f]: e.target.value }
-                        d.ats = { ...(d.ats ?? {}), workday: rows }
-                      })
-                    }
-                  />
-                ))}
-                <Button
-                  variant="outline"
-                  className="shrink-0 px-2.5 py-1.5 text-xs"
-                  disabled={
-                    verifyStates[`workday:${i}`]?.loading ||
-                    !(row.tenant && row.dc && row.site && row.company)
-                  }
-                  onClick={() => runVerify(`workday:${i}`, 'workday', undefined, row)}
-                >
-                  Verify
-                </Button>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-800 hover:text-rose-400"
-                  title="Remove"
-                  onClick={() =>
-                    update((d) => {
-                      d.ats = {
-                        ...(d.ats ?? {}),
-                        workday: (d.ats?.workday ?? []).filter((_, j) => j !== i),
-                      }
-                    })
-                  }
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <VerifyBadge state={verifyStates[`workday:${i}`]} />
-            </div>
-          ))}
-          <Button
-            variant="outline"
-            className="px-2.5 py-1.5 text-xs"
-            onClick={() =>
-              update((d) => {
-                d.ats = {
-                  ...(d.ats ?? {}),
-                  workday: [...(d.ats?.workday ?? []), { ...EMPTY_WD }],
-                }
-              })
-            }
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add tenant
-          </Button>
-        </div>
-      </Card>
 
       <Card title="Crawl limits & politeness">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

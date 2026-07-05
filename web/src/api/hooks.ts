@@ -115,6 +115,33 @@ export function useVerifySource() {
   })
 }
 
+// ---- Source suggestions (ITEM-5 harvester inbox) ------------------------------
+export function useSuggestions() {
+  return useQuery({ queryKey: ['suggestions'], queryFn: () => api.suggestions() })
+}
+
+export function useScanSuggestions() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.scanSuggestions(),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['suggestions'] }),
+  })
+}
+
+/** Accept merges into sources.yaml server-side — refresh the config too. */
+export function useSuggestionAction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, action }: { id: number; action: 'accept' | 'dismiss' }) =>
+      api.suggestionAction(id, action),
+    onSuccess: (_r, vars) => {
+      void qc.invalidateQueries({ queryKey: ['suggestions'] })
+      if (vars.action === 'accept')
+        void qc.invalidateQueries({ queryKey: ['config', 'sources'] })
+    },
+  })
+}
+
 export function useImportResume() {
   return useMutation({ mutationFn: (file: File) => api.importResume(file) })
 }
