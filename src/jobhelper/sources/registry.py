@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..util import get_logger
+from .adzuna import AdzunaSource
 from .amazon import AmazonSource
 from .arbeitnow import ArbeitnowSource
 from .ashby import AshbySource
@@ -66,6 +67,11 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False) -> list[
     if ats_cfg.get("usajobs"):
         per_query = int(sources_cfg.get("usajobs_per_query", 50))
         sources.append(USAJobsSource(fetcher, cap, list(ats_cfg["usajobs"]), per_query))
+    # Adzuna: SEARCH QUERIES; needs ADZUNA_APP_ID + ADZUNA_APP_KEY in .env
+    # (skips itself with a log hint when the keys are missing).
+    if ats_cfg.get("adzuna"):
+        per_query = int(sources_cfg.get("adzuna_per_query", 50))
+        sources.append(AdzunaSource(fetcher, cap, list(ats_cfg["adzuna"]), per_query))
 
     log.info("Enabled sources: %s", ", ".join(s.name for s in sources) or "(none)")
     return sources

@@ -24,13 +24,21 @@ from ..sources.lever import LeverSource
 from ..sources.microsoft import MicrosoftSource
 from ..sources.remoteok import RemoteOKSource
 from ..sources.remotive import RemotiveSource
+from ..sources.adzuna import REGISTER_URL as ADZUNA_REGISTER_URL
+from ..sources.adzuna import AdzunaSource
 from ..sources.smartrecruiters import SmartRecruitersSource
-from ..sources.usajobs import REGISTER_URL, USAJobsSource
+from ..sources.usajobs import REGISTER_URL as USAJOBS_REGISTER_URL
+from ..sources.usajobs import USAJobsSource
 from ..sources.workday import WorkdaySource
 
 AGGREGATOR_KINDS = ("remotive", "arbeitnow", "remoteok")
 TOKEN_KINDS = ("greenhouse", "lever", "ashby", "smartrecruiters",
-               "microsoft", "amazon", "usajobs")
+               "microsoft", "amazon", "usajobs", "adzuna")
+# Keyed sources: required env vars + where to register, for the no-key hint.
+_KEYED = {
+    "usajobs": (("USAJOBS_API_KEY",), USAJOBS_REGISTER_URL),
+    "adzuna": (("ADZUNA_APP_ID", "ADZUNA_APP_KEY"), ADZUNA_REGISTER_URL),
+}
 ALL_KINDS = AGGREGATOR_KINDS + TOKEN_KINDS + ("workday",)
 
 _CAP = 50          # plenty to prove a board is alive, small enough to stay quick
@@ -60,6 +68,8 @@ def _build(kind: str, token: str | None, entry: dict[str, Any] | None,
         return AmazonSource(fetcher, _QUERY_CAP, [token], _QUERY_CAP)
     if kind == "usajobs":
         return USAJobsSource(fetcher, _QUERY_CAP, [token], _QUERY_CAP)
+    if kind == "adzuna":
+        return AdzunaSource(fetcher, _QUERY_CAP, [token], _QUERY_CAP)
     if kind == "workday":
         # One search term is enough to prove the tenant/dc/site triple works.
         terms = [searches[0]] if searches else ["software engineer"]
@@ -70,10 +80,12 @@ def _build(kind: str, token: str | None, entry: dict[str, Any] | None,
 def verify(kind: str, token: str | None = None,
            entry: dict[str, Any] | None = None,
            searches: list[str] | None = None) -> dict[str, Any]:
-    if kind == "usajobs" and not os.environ.get("USAJOBS_API_KEY", "").strip():
+    env_vars, register_url = _KEYED.get(kind, ((), ""))
+    missing = [v for v in env_vars if not os.environ.get(v, "").strip()]
+    if missing:
         return {"ok": False, "count": 0, "sample": [], "company": None,
-                "message": f"USAJOBS_API_KEY not set — get a free key at "
-                           f"{REGISTER_URL}, add it to .env, restart the dashboard."}
+                "message": f"{' + '.join(missing)} not set — get a free key at "
+                           f"{register_url}, add it to .env, restart the dashboard."}
     fetcher = Fetcher(delay=0.2, timeout=15.0, use_cache=False, max_retries=1)
     try:
         source = _build(kind, token, entry, searches, fetcher)
@@ -87,12 +99,13 @@ def verify(kind: str, token: str | None = None,
     count = len(jobs)
     if count == 0:
         hint = ("no results for this query" if kind in ("microsoft", "amazon",
-                                                        "usajobs")
+                                                        "usajobs", "adzuna")
                 else "check the slug (they're case-sensitive) — or the board is empty")
         return {"ok": False, "count": 0, "sample": [], "company": None,
                 "message": f"0 jobs returned — {hint}."}
     capped = count >= (source.cap
-                       if kind not in ("microsoft", "amazon", "workday", "usajobs")
+                       if kind not in ("microsoft", "amazon", "workday",
+                                       "usajobs", "adzuna")
                        else _QUERY_CAP)
     return {
         "ok": True,

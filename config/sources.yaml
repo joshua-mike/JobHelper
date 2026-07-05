@@ -1,5 +1,6 @@
 # =============================================================================
-# SOURCES  —  where jobs come from. Remote-only; keyless except USAJOBS (free key).
+# SOURCES  —  where jobs come from. Remote-only; keyless except USAJOBS + Adzuna
+# (free keys, names in .env.example — real values live only in gitignored .env).
 #
 # The remote aggregator feeds (Remotive, Arbeitnow, RemoteOK) need no config and
 # give broad coverage immediately. The ATS feeds (Greenhouse/Lever/Ashby) pull
@@ -131,6 +132,17 @@ ats:
     - "software engineer"
     - ".net"
     - "c#"
+  # Adzuna (ITEM-6) — keyed aggregator (developer.adzuna.com), the legal
+  # Indeed-equivalent lane: long-tail/SMB coverage + harvester feedstock.
+  # Set ADZUNA_APP_ID + ADZUNA_APP_KEY in .env. Items are SEARCH QUERIES; the
+  # adapter adds what_and=remote and caps at 50/query. NOTE: API descriptions
+  # are truncated (~500 chars) and predicted salaries are kept out of the
+  # salary fields. Decision metric: watch the adzuna row in the dashboard
+  # Sources panel for ~2 weeks — if `surfaced` stays ~0, toggle this off.
+  adzuna:
+    - "c#"
+    - ".net developer"    # not bare ".net" — Adzuna matches it loosely ("net new", nursing NET roles)
+    - "software engineer"
   # Not recovered: Ad Hoc (moved to Workable), Granicus (Lever JSON API disabled),
   # Optimyl (uses Rippling) — none usable with the Greenhouse/Lever/Ashby adapters.
 
@@ -144,6 +156,8 @@ microsoft_per_query: 40
 amazon_per_query: 40
 # USAJOBS only: results requested per search query (API max 500).
 usajobs_per_query: 50
+# Adzuna only: results requested per search query (API max 50 per page).
+adzuna_per_query: 50
 # Workday only: search terms applied to EACH tenant, and the cap per term. Workday
 # boards are large, so these scope the crawl to relevant roles (kept low-volume).
 workday_searches:

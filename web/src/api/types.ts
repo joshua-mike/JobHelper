@@ -177,6 +177,7 @@ export interface AtsData {
   microsoft?: string[]
   amazon?: string[]
   usajobs?: string[]
+  adzuna?: string[]
   workday?: WorkdayRow[]
   [key: string]: unknown
 }
@@ -189,6 +190,7 @@ export interface SourcesData {
   microsoft_per_query?: number
   amazon_per_query?: number
   usajobs_per_query?: number
+  adzuna_per_query?: number
   workday_searches?: string[]
   workday_per_search?: number
   [key: string]: unknown
@@ -282,6 +284,7 @@ export type SourceKind =
   | 'amazon'
   | 'workday'
   | 'usajobs'
+  | 'adzuna'
 
 export interface VerifySourceRequest {
   kind: SourceKind

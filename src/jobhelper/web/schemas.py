@@ -161,7 +161,7 @@ class SaveResult(BaseModel):
 class VerifySourceRequest(BaseModel):
     kind: Literal["remotive", "arbeitnow", "remoteok", "greenhouse", "lever",
                   "ashby", "smartrecruiters", "microsoft", "amazon", "workday",
-                  "usajobs"]
+                  "usajobs", "adzuna"]
     token: str | None = None                 # board slug or search query
     entry: dict[str, Any] | None = None      # workday {tenant, dc, site, company}
 

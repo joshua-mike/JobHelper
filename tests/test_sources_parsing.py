@@ -156,6 +156,74 @@ def test_amazon():
     check(".net a plus" in j.description_clean.lower(), "qualifications concatenated")
 
 
+def test_adzuna():
+    import os
+    print("== Adzuna adapter ==")
+    from jobhelper.sources.adzuna import AdzunaSource
+    search = {"count": 2776, "results": [
+        {
+            "id": "5501", "title": "Remote .NET C# Developer",
+            "description": "Build APIs. " * 30,  # truncated-style blob
+            "redirect_url": "https://www.adzuna.com/land/ad/5501",
+            "company": {"display_name": "Gainwell Technologies"},
+            "location": {"display_name": "Andover, Butler County"},
+            "category": {"label": "IT Jobs", "tag": "it-jobs"},
+            "created": "2026-07-01T21:11:28Z",
+            "salary_min": 90000.0, "salary_max": 120000.0,
+            "salary_is_predicted": "0",
+        },
+        {
+            "id": "5502", "title": "C# Engineer",
+            "description": "Onsite-ish text without the r-word visible.",
+            "redirect_url": "https://www.adzuna.com/land/ad/5502",
+            "company": {"display_name": "Acme"},
+            "location": {"display_name": "Columbus, Ohio"},
+            "category": {"label": "IT Jobs", "tag": "it-jobs"},
+            "created": "2026-07-02T10:00:00Z",
+            "salary_min": 88493.23, "salary_max": 88493.23,
+            "salary_is_predicted": "1",
+        },
+        {   # duplicate id must be dropped
+            "id": "5501", "title": "Remote .NET C# Developer (dupe)",
+            "redirect_url": "https://www.adzuna.com/land/ad/5501b",
+        },
+    ]}
+    old_id = os.environ.get("ADZUNA_APP_ID")
+    old_key = os.environ.get("ADZUNA_APP_KEY")
+    os.environ["ADZUNA_APP_ID"] = "test-id"
+    os.environ["ADZUNA_APP_KEY"] = "test-key"
+    try:
+        f = FakeFetcher({"api.adzuna.com": search})
+        jobs = AdzunaSource(f, cap=400, queries=["c#"], per_query=50).fetch()
+        check(len(jobs) == 2, f"two jobs (dupe id dropped) ({len(jobs)})")
+        j = jobs[0]
+        check(j.company == "Gainwell Technologies", f"company ({j.company})")
+        check(j.url == "https://www.adzuna.com/land/ad/5501", "url is redirect_url")
+        check(j.remote_type == "remote", f"remote detected in title ({j.remote_type})")
+        check(j.salary_min == 90000 and j.salary_max == 120000,
+              "listed salary kept")
+        check(j.date_posted == "2026-07-01T21:11:28Z", "created carried as-is")
+        check("IT Jobs" in j.tags and "c#" in j.tags, f"tags ({j.tags})")
+        k = jobs[1]
+        check(k.remote_type == "unknown", f"no visible 'remote' -> unknown ({k.remote_type})")
+        check(k.salary_min is None and k.salary_max is None,
+              "predicted salary kept OUT of salary fields")
+        check(k.extra.get("salary_predicted", {}).get("min") == 88493.23,
+              "predicted salary stored in extra")
+
+        # No keys -> graceful skip, no fetch attempted
+        os.environ["ADZUNA_APP_ID"] = ""
+        os.environ["ADZUNA_APP_KEY"] = ""
+        jobs2 = AdzunaSource(FakeFetcher({}), cap=400, queries=["c#"]).fetch()
+        check(jobs2 == [], "missing keys -> [] without any HTTP call")
+    finally:
+        for name, old in (("ADZUNA_APP_ID", old_id), ("ADZUNA_APP_KEY", old_key)):
+            if old is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = old
+
+
 def test_fetcher_get_unchanged():
     # The POST refactor must not change GET behavior: get_json still routes GETs.
     from jobhelper.sources.base import Fetcher
@@ -169,6 +237,7 @@ def main() -> int:
     test_smartrecruiters()
     test_workday()
     test_amazon()
+    test_adzuna()
     test_fetcher_get_unchanged()
     print("\nALL SOURCE-PARSING CHECKS PASSED")
     return 0
