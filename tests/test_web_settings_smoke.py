@@ -89,7 +89,11 @@ def main() -> int:
             print("== GET configs ==")
             r = client.get("/api/settings/criteria")
             check(r.status_code == 200 and r.json()["exists"], "criteria loads")
-            check(r.json()["data"]["daily_target"] == 6, "criteria data correct")
+            # Compare against the store, not a literal: the copied criteria.yaml
+            # may carry locally tuned values.
+            orig_target = settings_store.load_data("criteria")["daily_target"]
+            check(r.json()["data"]["daily_target"] == orig_target,
+                  "criteria data correct")
             r = client.get("/api/settings/sources")
             check(r.status_code == 200 and
                   "greenhouse" in r.json()["data"]["ats"], "sources loads")
@@ -101,16 +105,19 @@ def main() -> int:
                   "example data returned")
 
             print("== PUT criteria ==")
-            r = client.put("/api/settings/criteria", json={"daily_target": 8})
+            new_target = 8 if orig_target != 8 else 9
+            r = client.put("/api/settings/criteria",
+                           json={"daily_target": new_target})
             check(r.status_code == 200, "PUT criteria -> 200")
             check(r.json()["changed"] and not r.json()["applies_next_run"],
                   "changed, applies now (idle)")
             check(r.json()["backup"], "backup path returned")
             check(client.get("/api/settings/criteria").json()["data"]
-                  ["daily_target"] == 8, "GET reflects saved value")
+                  ["daily_target"] == new_target, "GET reflects saved value")
             text = (cfg_dir / "criteria.yaml").read_text(encoding="utf-8")
             check("CEILING" in text, "comments survived the API save")
-            r = client.put("/api/settings/criteria", json={"daily_target": 8})
+            r = client.put("/api/settings/criteria",
+                           json={"daily_target": new_target})
             check(r.status_code == 200 and not r.json()["changed"],
                   "no-op PUT reports changed=false")
 

@@ -51,20 +51,26 @@ def main() -> int:
     check(profile["identity"]["full_name"] == "Jane Doe", "profile loads")
 
     print("== scalar edit preserves comments ==")
-    backup, changed = st.save("criteria", {"daily_target": 9, "min_score": 60})
+    # Derive edit values from the loaded config: locally tuned criteria.yaml
+    # values must not turn these saves into no-ops or break backup checks.
+    pre_save = st.config_path("criteria").read_text(encoding="utf-8")
+    new_target = 9 if criteria["daily_target"] != 9 else 8
+    new_score = 60 if criteria["min_score"] != 60 else 61
+    backup, changed = st.save("criteria", {"daily_target": new_target,
+                                           "min_score": new_score})
     check(changed, "save reports changed")
     text = st.config_path("criteria").read_text(encoding="utf-8")
-    check("daily_target: 9" in text, "value updated")
-    check("min_score: 60" in text, "second value updated")
+    check(f"daily_target: {new_target}" in text, "value updated")
+    check(f"min_score: {new_score}" in text, "second value updated")
     check("This is a CEILING, not" in text, "header comment kept")
     check("# ---- Role targeting ---" in text, "section comment kept")
     check(backup is not None and backup.exists(), "backup written")
-    check("daily_target: 6" in backup.read_text(encoding="utf-8"),
+    check(backup.read_text(encoding="utf-8") == pre_save,
           "backup holds pre-save content")
 
     print("== no-op save writes nothing ==")
     before = st.config_path("criteria").read_text(encoding="utf-8")
-    backup2, changed2 = st.save("criteria", {"daily_target": 9})
+    backup2, changed2 = st.save("criteria", {"daily_target": new_target})
     check(not changed2 and backup2 is None, "identical save: no write, no backup")
     check(st.config_path("criteria").read_text(encoding="utf-8") == before,
           "file untouched")
