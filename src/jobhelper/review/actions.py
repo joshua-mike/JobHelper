@@ -40,6 +40,8 @@ def enrich(job: dict) -> dict:
                             else round((job.get("embed_score") or 0) * 100))
     job["has_resume"] = bool(job.get("tailored_resume_path")
                              and Path(job["tailored_resume_path"]).exists())
+    # Keyword coverage blob (ITEM-8); distinct from 'ats' (detected vendor) below.
+    job["ats_report"] = loads_json(job.get("ats_report"), None)
     job["ats"] = detect_ats(job.get("url", ""))
     # Assisted apply only helps on real hosted ATS forms, not aggregator listings.
     job["can_assist"] = job["ats"] in ("greenhouse", "lever", "ashby")

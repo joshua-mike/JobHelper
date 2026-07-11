@@ -12,6 +12,11 @@ from typing import Any
 
 from ..config import years_of_experience
 from ..llm import LLM
+from .keywords import term_pattern
+
+# Longest allowed skills-line alias ("Amazon Web Services (AWS)" is 26 chars;
+# anything much longer is the model padding, not mirroring).
+DISPLAY_AS_MAX = 60
 
 # ---- Date formatting ---------------------------------------------------------
 def fmt_month(ym: Any) -> str:
@@ -77,18 +82,40 @@ TAILOR_INSTRUCTIONS = (
     "You tailor a resume to a specific job. You may ONLY use facts present in the "
     "candidate profile. Do NOT invent employers, titles, dates, metrics, or skills. "
     "For each job you receive numbered achievements; produce reworded/selected "
-    "bullets drawn ONLY from that job's achievements, mirroring the job posting's "
-    "terminology where truthful (action verb + task + quantified result). Write a "
-    "2-3 sentence summary aligned to the role. Order the candidate's existing skills "
-    "by relevance to the posting. List concrete change notes."
+    "bullets drawn ONLY from that job's achievements. Write a 2-3 sentence summary "
+    "aligned to the role. Order the candidate's existing skills by relevance to "
+    "the posting. List concrete change notes.\n"
+    "Keyword strategy (when a keyword table is provided): mirror the posting's "
+    "EXACT wording wherever it is truthful for this candidate. Use acronym and "
+    "expansion once each. Aim for 2-3 placements of each REQUIRED term: the "
+    "summary, one evidence bullet, and the skills line — never more. NEVER place "
+    "a keyword the profile has no evidence for; instead list JD-required terms "
+    "the candidate genuinely lacks in missing_required (flag, don't fabricate). "
+    "Make 60-80% of bullets follow: action verb + task containing the keyword + "
+    "quantified outcome, using ONLY numbers already present in the achievements.\n"
+    "Skills line: each entry may set display_as to mirror the JD — the acronym/"
+    "expansion pair or the JD's exact phrasing ONLY (e.g. 'Amazon Web Services "
+    "(AWS)' for 'AWS'). Never add versions, certifications, or proficiency levels."
 )
 
 TAILOR_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "summary": {"type": "string"},
-        "skills_order": {"type": "array", "items": {"type": "string"},
-                         "description": "Subset/reorder of the candidate's EXISTING skills."},
+        "skills_order": {
+            "type": "array",
+            "description": "Subset/reorder of the candidate's EXISTING skills.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "skill": {"type": "string",
+                              "description": "A skill exactly as it appears in the profile."},
+                    "display_as": {"type": "string",
+                                   "description": "Optional JD-mirroring rendering; must contain the skill itself."},
+                },
+                "required": ["skill"],
+            },
+        },
         "jobs": {
             "type": "array",
             "items": {
@@ -101,15 +128,35 @@ TAILOR_SCHEMA: dict[str, Any] = {
             },
         },
         "change_notes": {"type": "array", "items": {"type": "string"}},
+        "missing_required": {
+            "type": "array", "items": {"type": "string"},
+            "description": "JD-required terms the candidate genuinely lacks.",
+        },
     },
-    "required": ["summary", "skills_order", "jobs", "change_notes"],
+    "required": ["summary", "skills_order", "jobs", "change_notes",
+                 "missing_required"],
 }
 
 
-def tailor_resume(llm: LLM, model: str, profile: dict, job: dict) -> tuple[dict, list[str]]:
+def _keyword_block(keywords: list[dict]) -> str:
+    rows = []
+    for kw in sorted(keywords, key=lambda k: not k.get("required")):
+        req = "REQUIRED" if kw.get("required") else "preferred"
+        variants = ", ".join(kw.get("variants") or [])
+        var = f" (variants: {variants})" if variants else ""
+        rows.append(f"- [{req}] {kw.get('term', '')} [{kw.get('category', '')}]{var}")
+    return ("KEYWORD TABLE FROM THE JOB DESCRIPTION (required first):\n"
+            + "\n".join(rows))
+
+
+def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
+                  keywords: list[dict] | None = None,
+                  ) -> tuple[dict, list[str], list[str]]:
+    """Returns (content, change_notes, missing_required)."""
     base = passthrough_resume(profile)
     if not llm.available:
-        return base, ["Tailoring skipped (no ANTHROPIC_API_KEY) — using full profile resume."]
+        return base, ["Tailoring skipped (no ANTHROPIC_API_KEY) — using full "
+                      "profile resume."], []
 
     wh = profile.get("work_history", []) or []
     job_blocks = []
@@ -120,9 +167,13 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict) -> tuple[dict,
         job_blocks.append(f"[index {i}] {j.get('title','')} @ {j.get('company','')}\n{listed}")
     profile_skills = base["skills"]
 
+    # The keyword table is the distilled JD (checker's view); the raw excerpt
+    # stays capped at 5k as before.
+    keyword_part = f"{_keyword_block(keywords)}\n\n" if keywords else ""
     user = (
         f"JOB POSTING\nTitle: {job.get('title','')}\nCompany: {job.get('company','')}\n\n"
         f"{(job.get('description_clean') or '')[:5000]}\n\n"
+        f"{keyword_part}"
         f"CANDIDATE SUMMARY: {profile.get('summary','')}\n\n"
         f"CANDIDATE SKILLS (use only these): {', '.join(profile_skills)}\n\n"
         f"CANDIDATE JOBS AND THEIR ACHIEVEMENTS (reword/select only from each):\n"
@@ -133,19 +184,40 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict) -> tuple[dict,
         tool_name="tailored_resume", model=model, max_tokens=1800,
     )
     if not result:
-        return base, ["Tailoring failed — using full profile resume."]
+        return base, ["Tailoring failed — using full profile resume."], []
 
     # --- Assemble, enforcing truthfulness ---
     content = dict(base)
     if result.get("summary"):
         content["summary"] = result["summary"].strip()
 
-    # Skills: keep only ones that actually exist in the profile.
+    # Skills: keep only ones that actually exist in the profile. display_as may
+    # mirror the JD's wording but must contain the skill as a token (boundary-
+    # aware, so 'Amazon Web Services (AWS)' passes for 'AWS' while 'JavaScript'
+    # fails for 'Java'); invalid aliases silently fall back to the plain name.
     valid = {s.lower(): s for s in profile_skills}
-    ordered = [valid[s.lower()] for s in result.get("skills_order", []) if s.lower() in valid]
+    ordered: list[str] = []
+    used: set[str] = set()
+    alias_notes: list[str] = []
+    for entry in result.get("skills_order", []):
+        if isinstance(entry, dict):
+            skill = str(entry.get("skill") or "").strip()
+            display = str(entry.get("display_as") or "").strip()
+        else:
+            skill, display = str(entry).strip(), ""
+        canon = valid.get(skill.lower())
+        if not canon or canon.lower() in used:
+            continue
+        used.add(canon.lower())
+        shown = canon
+        if display and display.lower() != canon.lower():
+            if len(display) <= DISPLAY_AS_MAX and term_pattern(canon).search(display):
+                shown = display
+                alias_notes.append(f"displayed '{canon}' as '{display}'")
+        ordered.append(shown)
     # Append any profile skills the model dropped, so nothing real is lost.
     for s in profile_skills:
-        if s not in ordered:
+        if s.lower() not in used:
             ordered.append(s)
     content["skills"] = ordered
 
@@ -160,7 +232,10 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict) -> tuple[dict,
         new_exp.append(e)
     content["experience"] = new_exp
 
-    return content, list(result.get("change_notes", []))
+    notes = list(result.get("change_notes", [])) + alias_notes
+    missing_required = [s for s in (str(m).strip() for m in
+                                    result.get("missing_required") or []) if s]
+    return content, notes, missing_required
 
 
 # ---- Cover letter (LLM only) -------------------------------------------------

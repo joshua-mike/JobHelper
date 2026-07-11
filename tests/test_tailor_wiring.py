@@ -60,12 +60,14 @@ class FakeLLM:
         return {
             "summary": "Backend engineer focused on reliable Python services.",
             # 'Rust' and 'Kubernetes' are NOT in the profile — must be dropped.
-            "skills_order": ["FastAPI", "Python", "Rust", "Kubernetes"],
+            "skills_order": [{"skill": "FastAPI"}, {"skill": "Python"},
+                             {"skill": "Rust"}, {"skill": "Kubernetes"}],
             "jobs": [
                 {"index": 0, "bullets": ["Cut nightly metering batch from 6h to 40min."]},
                 # index 1 omitted -> should fall back to profile achievements.
             ],
             "change_notes": ["Reordered skills; emphasized metering work."],
+            "missing_required": ["Go"],
         }
 
     def text(self, system, user, *, model, max_tokens=1024):
@@ -80,7 +82,8 @@ def check(cond: bool, msg: str) -> None:
 
 def main() -> int:
     print("== tailor_resume assembly ==")
-    content, notes = T.tailor_resume(FakeLLM(), "fake-model", PROFILE, JOB)
+    content, notes, missing = T.tailor_resume(FakeLLM(), "fake-model", PROFILE, JOB)
+    check(missing == ["Go"], "missing_required flows out of tailor_resume")
 
     profile_skills = {"python", "fastapi", "postgresql", "aws"}
     out_skills = {s.lower() for s in content["skills"]}
@@ -124,12 +127,19 @@ def main() -> int:
                "tailored_resume_path": "data/resumes/x.docx",
                "cover_letter_text": "Dear Globex team,\nHello.",
                "change_log": '["Reordered skills"]', "screening_answers": "{}",
-               "embed_score": 0.4}
+               "embed_score": 0.4,
+               "ats_report": '{"coverage": {"required_present": 1, '
+                             '"required_total": 2, "missing": ["Go"]}, '
+                             '"warnings": ["\'Python\' appears 5x document-wide '
+                             '(cap 4)"]}'}
     md, path = render_digest([job_row], "testrun", "lexical", llm_on=True)
     check("score 82" in md, "llm_score shown in digest")
     check("Strong Python/FastAPI overlap" in md, "rationale shown")
     check("Meets:" in md and "Gaps:" in md, "met/missing shown")
     check("Cover letter draft" in md, "cover letter shown")
+    check("ATS coverage:** 1/2 required · missing: Go" in md,
+          "ats coverage line shown")
+    check("appears 5x" in md, "ats warning shown")
     path.unlink(missing_ok=True)
 
     print("\nALL WIRING CHECKS PASSED")

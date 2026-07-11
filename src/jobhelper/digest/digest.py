@@ -81,6 +81,16 @@ def render_digest(jobs: list[dict], run_id: str, scorer_mode: str,
         notes = _loads(j.get("change_log"), [])
         if notes:
             out.append("  - " + "\n  - ".join(notes))
+        ats = _loads(j.get("ats_report"), {})
+        cov = ats.get("coverage") if isinstance(ats, dict) else None
+        if cov:
+            line = (f"**ATS coverage:** {cov.get('required_present', 0)}/"
+                    f"{cov.get('required_total', 0)} required")
+            if cov.get("missing"):
+                line += f" · missing: {', '.join(cov['missing'])}"
+            out.append(line)
+            for w in ats.get("warnings") or []:
+                out.append(f"- ⚠️ {w}")
         out.append("")
         if j.get("cover_letter_text"):
             out.append("**Cover letter draft:**")

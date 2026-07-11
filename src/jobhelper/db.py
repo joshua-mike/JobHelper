@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     cover_letter_text   TEXT,
     change_log          TEXT,           -- JSON
     screening_answers   TEXT,           -- JSON
+    ats_report          TEXT,           -- JSON: keyword table + coverage + warnings
     status              TEXT NOT NULL DEFAULT 'new',
     status_reason       TEXT,
     proposed_in_run_id  TEXT,
@@ -86,7 +87,7 @@ _WRITABLE = {
     "salary_max", "salary_currency", "candidate_location", "description_raw",
     "description_clean", "tags", "date_posted", "embed_score", "llm_score",
     "llm_musthaves_met", "llm_missing", "llm_rationale", "tailored_resume_path",
-    "cover_letter_text", "change_log", "screening_answers", "status",
+    "cover_letter_text", "change_log", "screening_answers", "ats_report", "status",
     "status_reason", "proposed_in_run_id", "approved_at", "applied_at",
     "error_text",
 }
@@ -102,6 +103,11 @@ def connect() -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # Columns added after a DB already exists: SCHEMA is CREATE TABLE IF NOT
+    # EXISTS, so editing it alone never reaches live databases.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    if "ats_report" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN ats_report TEXT")
     conn.commit()
 
 

@@ -92,6 +92,37 @@ export function ReviewJobCard({
         </div>
       )}
 
+      {job.ats_report && (job.ats_report.coverage || job.ats_report.error) && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {job.ats_report.coverage && (
+            <Badge
+              tone={
+                job.ats_report.coverage.required_present >=
+                job.ats_report.coverage.required_total
+                  ? 'green'
+                  : 'yellow'
+              }
+            >
+              ATS {job.ats_report.coverage.required_present}/
+              {job.ats_report.coverage.required_total} required
+            </Badge>
+          )}
+          {(job.ats_report.coverage?.missing ?? []).map((m) => (
+            <Badge key={`ats-miss-${m}`} tone="yellow">
+              missing: {m}
+            </Badge>
+          ))}
+          {(job.ats_report.warnings ?? []).map((w) => (
+            <Badge key={`ats-warn-${w}`} tone="red">
+              ⚠ {w}
+            </Badge>
+          ))}
+          {job.ats_report.error && (
+            <Badge tone="slate">no ATS report: {job.ats_report.error}</Badge>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 flex flex-wrap gap-4 text-sm">
         {job.url && (
           <a

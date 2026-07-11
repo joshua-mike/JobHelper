@@ -28,6 +28,11 @@ SOURCE → DEDUPE → HARD FILTER → SCORE → SELECT → TAILOR → DAILY DIGE
 - **Tailor**: an ATS-safe single-column `.docx` resume + an optional cover-letter
   draft + your reusable screening answers. Company/title/dates are copied verbatim
   from your profile; the LLM may only reword/select bullets — it can't invent.
+  A separate keyword-extraction call distills the JD into a ranked term table
+  (required/preferred + variants) that steers the tailoring, and every saved
+  resume is re-extracted and verified: structural problems (lost sections/dates/
+  contact, hidden text) fail the job; keyword coverage `N/M required` + any
+  frequency-cap warnings land in the digest and on the dashboard card.
 - **Digest**: a dated Markdown file in `data/digests/` with everything you need to
   decide and apply.
 
@@ -172,6 +177,11 @@ is safe to enable.
   history) are surfaced in every digest to copy-paste.
 - **Truthful tailoring by construction:** the model may only select/reword facts
   already in your profile.
+- **Checker ≠ writer:** keyword coverage is scored by a separate extraction call
+  and a boundary-aware matcher (naive `\b` regex never matches `C#`/`.NET`/`C++`),
+  then re-measured on plain text extracted from the saved `.docx` — the artifact
+  a parser actually sees. JD-required skills you genuinely lack are flagged
+  (`missing_required`), never fabricated.
 
 ## Project layout
 
@@ -222,6 +232,10 @@ LinkedIn/Indeed are never automated.
 
 ```powershell
 python tests\test_tailor_wiring.py   # offline: anti-hallucination + ATS-safe docx
+python tests\test_keywords.py        # offline: boundary matcher + coverage + extraction
+python tests\test_verify.py          # offline: DOCX re-extraction, structural checks
+python tests\test_tailor_ats.py      # offline: display_as containment + missing_required
+python tests\test_db_migration.py    # offline: ats_report column migration idempotency
 python tests\test_review_smoke.py    # in-process: review actions + status flow
 python tests\test_apply_matching.py  # offline: form-field matching across ATS
 python tests\test_screening.py       # offline: screening polarity + option matching

@@ -15,8 +15,9 @@ from .digest import render_digest
 from .llm import LLM
 from .rank import Judge, Scorer, passes
 from .sources import build_sources
-from .tailor import (build_resume, cover_letter, screening_answers,
-                     tailor_resume)
+from .tailor import (build_ats_report, build_resume, cover_letter,
+                     extract_docx_text, extract_keywords, screening_answers,
+                     structural_failures, tailor_resume)
 from .util import RESUME_DIR, get_logger
 
 log = get_logger()
@@ -158,21 +159,49 @@ def run(use_cache: bool = False) -> dict:
     # ---- 6. TAILOR ----
     tailor_model = criteria.get("tailor_model", "claude-opus-4-8")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    name_slug = _safe((profile.get("identity", {}) or {}).get("full_name", "Resume"))
     for row in proposals:
         job = dict(row)
         try:
-            content, notes = tailor_resume(llm, tailor_model, profile, job)
-            resume_path = RESUME_DIR / today / f"{row['id']}_{_safe(job['company'])}.docx"
+            # Keyword table first (checker independent of writer). Returns
+            # None in no-LLM mode or on a dead extraction call — which must
+            # not cost the day's proposals, so we tailor without it.
+            keywords = extract_keywords(llm, tailor_model, job)
+            content, notes, missing_required = tailor_resume(
+                llm, tailor_model, profile, job, keywords=keywords)
+
+            # Job id is the folder; the filename is recruiter-facing.
+            fname = f"{name_slug}_{_safe(job.get('title') or 'Role', 40)}.docx"
+            resume_path = RESUME_DIR / today / str(row["id"]) / fname
             build_resume(content, resume_path)
+
+            # Verify the artifact, not the dict. Structural problems mean the
+            # resume is unusable — take the existing per-job error path.
+            failures = structural_failures(resume_path, content)
+            if failures:
+                raise RuntimeError("resume failed verification: "
+                                   + "; ".join(failures))
+
+            if keywords:
+                report = build_ats_report(
+                    keywords, extract_docx_text(resume_path), missing_required)
+            elif llm.available:
+                report = {"error": "keyword extraction failed"}
+            else:
+                report = None  # no-LLM mode: no coverage to report
+
             cl = cover_letter(llm, tailor_model, profile, job)
             ans = screening_answers(profile)
-            db.update_job(
-                conn, row["id"], status="tailored",
+            fields: dict = dict(
+                status="tailored",
                 tailored_resume_path=str(resume_path),
                 cover_letter_text=cl or "",
                 change_log=notes,
                 screening_answers=ans,
             )
+            if report is not None:
+                fields["ats_report"] = report
+            db.update_job(conn, row["id"], **fields)
         except Exception as exc:
             counts["errors"] += 1
             log.error("tailor failed for %s: %s", row["id"], exc)

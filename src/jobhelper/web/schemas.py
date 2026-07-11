@@ -93,6 +93,7 @@ class ReviewJob(BaseModel):
     has_resume: bool = False
     ats: str = "generic"
     can_assist: bool = False
+    ats_report: dict[str, Any] | None = None
     date_posted: str | None = None
     first_seen_at: str | None = None
     proposed_in_run_id: str | None = None

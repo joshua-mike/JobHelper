@@ -59,7 +59,7 @@ def build_resume(content: dict[str, Any], path: Path) -> Path:
 
     # --- Summary ---
     if content.get("summary"):
-        _heading(doc, "Summary")
+        _heading(doc, "Professional Summary")
         _line(doc, content["summary"])
 
     # --- Skills (bare comma-separated tokens: NER-friendly) ---
@@ -72,13 +72,17 @@ def build_resume(content: dict[str, Any], path: Path) -> Path:
     exp = content.get("experience", [])
     if exp:
         _heading(doc, "Work Experience")
+        # 3 lines per entry — parsers key off line structure, and a combined
+        # "Title — Company" line is the exact pattern they mis-split.
         for job in exp:
-            header = f"{job.get('title', '')} — {job.get('company', '')}"
-            _line(doc, header, bold=True)
-            meta_bits = [job.get("location"), _daterange(job)]
-            meta = "  |  ".join(b for b in meta_bits if b)
-            if meta:
-                _line(doc, meta, size=10)
+            _line(doc, job.get("title", ""), bold=True)
+            company = " — ".join(b for b in [job.get("company"),
+                                             job.get("location")] if b)
+            if company:
+                _line(doc, company)
+            dates = daterange(job)
+            if dates:
+                _line(doc, dates, size=10)
             for bullet in job.get("bullets", []):
                 bp = doc.add_paragraph(style="List Bullet")
                 r = bp.add_run(bullet)
@@ -107,7 +111,8 @@ def build_resume(content: dict[str, Any], path: Path) -> Path:
     return path
 
 
-def _daterange(job: dict[str, Any]) -> str:
+def daterange(job: dict[str, Any]) -> str:
+    """Public: verify.py checks the artifact against this exact rendering."""
     start, end = job.get("start", ""), job.get("end", "")
     if start or end:
         return f"{start} – {end}".strip(" –")

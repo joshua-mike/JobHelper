@@ -64,6 +64,22 @@ export interface RecentJob {
 
 export type ReviewAction = 'applied' | 'approve' | 'skip' | 'reset'
 
+// ---- ATS keyword coverage (ITEM-8). Distinct from ReviewJob.ats (vendor). --
+
+export interface AtsCoverage {
+  required_present: number
+  required_total: number
+  missing: string[]
+}
+
+export interface AtsReport {
+  keyword_table?: unknown[] | null
+  coverage?: AtsCoverage | null
+  missing_required?: string[]
+  warnings?: string[]
+  error?: string
+}
+
 export interface ReviewJob {
   id: number
   title: string | null
@@ -88,6 +104,7 @@ export interface ReviewJob {
   has_resume: boolean
   ats: string
   can_assist: boolean
+  ats_report: AtsReport | null
   date_posted: string | null
   first_seen_at: string | null
   proposed_in_run_id: string | null
