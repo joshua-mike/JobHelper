@@ -17,13 +17,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from jobhelper import db  # noqa: E402
 
-# Minimal stand-in for the pre-ITEM-8 jobs table (key point: no ats_report).
+# Minimal stand-in for the pre-ITEM-8 jobs table (key point: no ats_report,
+# no content_hash). company/description_clean are included because the
+# content_hash migration backfills from them (every real DB has had them).
 OLD_JOBS_SQL = """
 CREATE TABLE jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_hash TEXT UNIQUE NOT NULL,
     source TEXT NOT NULL,
     title TEXT,
+    company TEXT,
+    description_clean TEXT,
     status TEXT NOT NULL DEFAULT 'new',
     created_at TEXT,
     updated_at TEXT
@@ -57,6 +61,7 @@ def test_migration():
 
             db.init_db(conn)
             check("ats_report" in cols(conn), "init_db adds ats_report column")
+            check("content_hash" in cols(conn), "init_db adds content_hash column")
             row = conn.execute(
                 "SELECT ats_report FROM jobs WHERE job_hash='h1'").fetchone()
             check(row[0] is None, "existing row stays NULL (no backfill)")

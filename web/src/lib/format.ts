@@ -44,5 +44,6 @@ export const STATUS_TONE: Record<string, Tone> = {
   applied: 'green',
   skipped: 'slate',
   filtered_out: 'slate',
+  duplicate: 'slate',
   error: 'red',
 }

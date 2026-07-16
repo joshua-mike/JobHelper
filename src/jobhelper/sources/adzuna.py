@@ -16,6 +16,10 @@ Known API caveats, encoded here:
 - `salary_is_predicted=1` marks Adzuna's own estimate, not a listed salary; it
   goes to extra["salary_predicted"], never into salary_min/max, so the salary
   floor never rejects on a guess.
+- `redirect_url` is VOLATILE: it carries a per-request `se=` signature (and the
+  format itself flips between land/ad/<id> and details/<id>), so the same ad
+  re-fetched on a later run gets a different URL. volatile_url=True makes the
+  dedupe identity source+ad-id instead of the URL.
 """
 from __future__ import annotations
 
@@ -116,4 +120,5 @@ class AdzunaSource(JobSource):
             date_posted=item.get("created"),
             tags=tags,
             extra=extra,
+            volatile_url=True,  # redirect_url changes per fetch; see module doc
         )

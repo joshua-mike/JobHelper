@@ -70,6 +70,7 @@ def run(use_cache: bool = False) -> dict:
               "proposed": 0, "errors": 0}
 
     # ---- 1. SOURCE + 2. DEDUPE ----
+    duplicates = 0  # content-dups parked at ingest (run_log has no column)
     for source in build_sources(sources_cfg, use_cache=use_cache):
         try:
             jobs = source.fetch()
@@ -80,12 +81,16 @@ def run(use_cache: bool = False) -> dict:
         for raw in jobs:
             counts["sourced"] += 1
             try:
-                if db.insert_job(conn, raw):
+                inserted = db.insert_job(conn, raw)
+                if inserted == "duplicate":
+                    duplicates += 1
+                elif inserted:
                     counts["new_jobs"] += 1
             except Exception as exc:
                 log.warning("insert failed: %s", exc)
         conn.commit()
-    log.info("sourced=%d new=%d", counts["sourced"], counts["new_jobs"])
+    log.info("sourced=%d new=%d duplicate=%d",
+             counts["sourced"], counts["new_jobs"], duplicates)
 
     # ---- 3. HARD FILTER ----
     for row in db.jobs_by_status(conn, "new"):
@@ -222,4 +227,4 @@ def run(use_cache: bool = False) -> dict:
 
     log.info("DONE. Digest: %s", digest_path)
     return {"run_id": run_id, "digest": str(digest_path), "llm_on": llm_on,
-            "scorer_mode": scorer.mode, **counts}
+            "scorer_mode": scorer.mode, "duplicates": duplicates, **counts}

@@ -2,6 +2,7 @@ import type { FunnelEntry } from '../../api/types'
 
 const LABELS: Record<string, string> = {
   new: 'New (unprocessed)',
+  duplicate: 'Duplicates',
   filtered_out: 'Filtered out',
   ranked: 'Ranked',
   scored: 'Scored',
@@ -17,6 +18,7 @@ const COLORS: Record<string, string> = {
   applied: 'bg-emerald-500/70',
   approved: 'bg-amber-500/70',
   error: 'bg-rose-500/70',
+  duplicate: 'bg-slate-600/70',
   filtered_out: 'bg-slate-600/70',
   skipped: 'bg-slate-600/70',
 }

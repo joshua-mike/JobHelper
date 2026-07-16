@@ -7,12 +7,13 @@ import sqlite3
 from typing import Any, Iterable
 
 from .models import RawJob
-from .util import DB_PATH, now_iso
+from .util import DB_PATH, now_iso, stable_hash
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     job_hash            TEXT UNIQUE NOT NULL,
+    content_hash        TEXT,           -- company+title+description identity
     source              TEXT NOT NULL,
     source_job_id       TEXT,
     url                 TEXT,
@@ -108,30 +109,72 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
     if "ats_report" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN ats_report TEXT")
+    if "content_hash" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN content_hash TEXT")
+        # Backfill so pre-existing rows participate in content dedup. Rows too
+        # thin to compare safely (blank company/title/description) stay NULL,
+        # matching RawJob.content_hash. Statuses are left alone — history the
+        # user already reviewed is not retroactively re-labelled.
+        for jid, company, title, desc in conn.execute(
+                "SELECT id, company, title, description_clean FROM jobs"
+        ).fetchall():
+            if ((company or "").strip() and (title or "").strip()
+                    and (desc or "").strip()):
+                conn.execute("UPDATE jobs SET content_hash=? WHERE id=?",
+                             (stable_hash(company, title, desc), jid))
+    # The index lives here, not in SCHEMA: on a pre-migration DB the column
+    # doesn't exist yet when executescript(SCHEMA) runs.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_content_hash "
+                 "ON jobs(content_hash)")
     conn.commit()
 
 
-def insert_job(conn: sqlite3.Connection, job: RawJob) -> bool:
-    """INSERT OR IGNORE on job_hash. Returns True only if a NEW row was created."""
+# A content-match older than this is treated as a genuinely re-opened req, not
+# a repost — the new row enters the pipeline normally.
+CONTENT_DUP_WINDOW_DAYS = 60
+
+
+def insert_job(conn: sqlite3.Connection, job: RawJob) -> str | None:
+    """Insert with two dedupe layers; returns "new", "duplicate", or None.
+
+    Identity (INSERT OR IGNORE on UNIQUE job_hash): the same posting fetched
+    again -> no new row, returns None.
+    Content (content_hash): the same ad under a fresh identity — posted once
+    per city, or reposted under a new aggregator ad id. The row is kept (for
+    harvester evidence and per-source metrics) but parked as status
+    'duplicate', which no pipeline stage selects, so it is never scored,
+    tailored, or surfaced.
+    """
     ts = now_iso()
+    status, reason = "new", None
+    content_hash = job.content_hash
+    if content_hash:
+        canon = conn.execute(
+            "SELECT id FROM jobs WHERE content_hash=? AND status != 'duplicate'"
+            " AND date(first_seen_at) >= date('now', ?) ORDER BY id LIMIT 1",
+            (content_hash, f"-{CONTENT_DUP_WINDOW_DAYS} days"),
+        ).fetchone()
+        if canon:
+            status, reason = "duplicate", f"duplicate of job #{canon[0]}"
     cur = conn.execute(
         """
         INSERT OR IGNORE INTO jobs (
-            job_hash, source, source_job_id, url, title, company, location,
-            remote_type, salary_min, salary_max, salary_currency,
+            job_hash, content_hash, source, source_job_id, url, title, company,
+            location, remote_type, salary_min, salary_max, salary_currency,
             candidate_location, description_raw, description_clean, tags,
-            date_posted, first_seen_at, status, created_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            date_posted, first_seen_at, status, status_reason,
+            created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
-            job.job_hash, job.source, job.source_job_id, job.url, job.title,
-            job.company, job.location, job.remote_type, job.salary_min,
-            job.salary_max, job.salary_currency, job.candidate_location,
-            job.description_raw, job.description_clean, json.dumps(job.tags),
-            job.date_posted, ts, "new", ts, ts,
+            job.job_hash, content_hash, job.source, job.source_job_id, job.url,
+            job.title, job.company, job.location, job.remote_type,
+            job.salary_min, job.salary_max, job.salary_currency,
+            job.candidate_location, job.description_raw, job.description_clean,
+            json.dumps(job.tags), job.date_posted, ts, status, reason, ts, ts,
         ),
     )
-    return cur.rowcount > 0
+    return status if cur.rowcount > 0 else None
 
 
 def update_job(conn: sqlite3.Connection, job_id: int, **fields: Any) -> None:

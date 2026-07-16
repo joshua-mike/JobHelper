@@ -105,6 +105,11 @@ def test_scan():
              desc="https://jobs.lever.co/rejected/1")
     _add_job(conn, "Rejected Inc", status="filtered_out",
              desc="https://jobs.lever.co/rejected/2")
+    # Content-dup rows never count as evidence (the canonical row already does)
+    _add_job(conn, "Dupe Inc", status="duplicate",
+             desc="https://jobs.lever.co/dupeinc/1")
+    _add_job(conn, "Dupe Inc", status="duplicate",
+             desc="https://jobs.lever.co/dupeinc/2")
     # Workday URL evidence -> entry candidate
     _add_job(conn, "WD Co", desc="https://wdco.wd5.myworkdayjobs.com/en-US/WDCareers/job/x")
     _add_job(conn, "WD Co", desc="https://wdco.wd5.myworkdayjobs.com/en-US/WDCareers/job/y")
@@ -165,6 +170,8 @@ def test_scan():
     check(row["status"] == "dismissed", "dismissed row untouched")
     check(not any("rejected" in (t or "") for _, t, _e in verify_calls),
           "filtered_out jobs contributed no evidence")
+    check(not any("dupeinc" in (t or "") for _, t, _e in verify_calls),
+          "duplicate jobs contributed no evidence")
     check(got[("lever", "acme-robotics")]["live_count"] == 7, "live_count from verify")
     check(got[("lever", "acme-robotics")]["sample"] == ["Job A", "Job B"],
           "sample titles stored")

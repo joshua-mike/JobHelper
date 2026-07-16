@@ -12,8 +12,9 @@ from .. import db
 
 PENDING_STATUSES = ("proposed", "tailored", "approved")
 # Current-state buckets shown in the pipeline funnel, in pipeline order.
-FUNNEL_ORDER = ("new", "filtered_out", "ranked", "scored", "proposed",
-                "tailored", "approved", "applied", "skipped", "error")
+FUNNEL_ORDER = ("new", "duplicate", "filtered_out", "ranked", "scored",
+                "proposed", "tailored", "approved", "applied", "skipped",
+                "error")
 # Statuses that mean "this job made it in front of the user".
 SURFACED_STATUSES = ("proposed", "tailored", "approved", "applied")
 

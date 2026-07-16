@@ -135,7 +135,9 @@ def gather_evidence(conn: sqlite3.Connection, criteria: dict[str, Any],
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     groups: dict[str, dict[str, Any]] = {}
     for r in rows:
-        if (r["status"] or "") in ("new", "filtered_out", "error"):
+        # Unassessed, rejected, and content-dup rows carry no signal — for
+        # duplicates, the canonical row already counts the posting once.
+        if (r["status"] or "") in ("new", "filtered_out", "error", "duplicate"):
             continue
         seen_at = parse_date(r["first_seen_at"])
         if seen_at is not None and seen_at < cutoff:
