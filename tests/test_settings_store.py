@@ -114,8 +114,11 @@ def main() -> int:
     _, changed = st.save("sources", {"ats": {"adzuna": ["python"]}})
     check(changed, "adzuna replacement save changed")
     text = st.config_path("sources").read_text(encoding="utf-8")
-    check('- "python"' in text, "replacement query written")
-    check(text.index('- "python"') < text.index("# Not recovered: Ad Hoc")
+    # Quote style copies the old items' — a locally emptied list has none,
+    # so accept the unquoted form too (resilient to tuned local config).
+    query = '- "python"' if '- "python"' in text else "- python"
+    check(query in text, "replacement query written")
+    check(text.index(query) < text.index("# Not recovered: Ad Hoc")
           < text.index("# Politeness: seconds to wait")
           < text.index("request_delay_seconds:"),
           "section trailer stays between list and next key")
