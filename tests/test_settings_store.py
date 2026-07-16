@@ -102,6 +102,34 @@ def main() -> int:
     check('- {tenant: "adobe"' in text or "- {tenant: adobe" in text,
           "new workday row written flow-style")
     check("myworkdayjobs.com/{site}" in text, "workday doc comment kept")
+    # ruamel drops a comment block between flow-style rows at PARSE time when
+    # the preceding row has no inline comment; save() must rescue it.
+    check("# —— Defense/federal expansion" in text,
+          "block comment between flow rows rescued")
+
+    print("== replacing / emptying a list keeps its section trailer ==")
+    # The comments after a list's last item (its own footnotes AND the next
+    # section's header) ride on that item's comment token; they must outlive
+    # a full replacement — this is how the Politeness comment was lost.
+    _, changed = st.save("sources", {"ats": {"adzuna": ["python"]}})
+    check(changed, "adzuna replacement save changed")
+    text = st.config_path("sources").read_text(encoding="utf-8")
+    check('- "python"' in text, "replacement query written")
+    check(text.index('- "python"') < text.index("# Not recovered: Ad Hoc")
+          < text.index("# Politeness: seconds to wait")
+          < text.index("request_delay_seconds:"),
+          "section trailer stays between list and next key")
+    _, changed = st.save("sources", {"ats": {"adzuna": []}})
+    check(changed, "adzuna emptied save changed")
+    text = st.config_path("sources").read_text(encoding="utf-8")
+    check("adzuna: []" in text, "adzuna emptied to []")
+    check(text.index("adzuna: []") < text.index("# Not recovered: Ad Hoc")
+          < text.index("# Politeness: seconds to wait")
+          < text.index("request_delay_seconds:"),
+          "trailer survives emptying, still above request_delay_seconds")
+    reloaded = st.load_data("sources")
+    check(reloaded["ats"]["adzuna"] == [], "empty list persisted")
+    check(reloaded["request_delay_seconds"] == 1.0, "next key still parses")
 
     print("== full-parity resave keeps quoting and folded style ==")
     crit_full = st.load_data("criteria")

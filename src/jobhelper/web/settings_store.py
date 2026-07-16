@@ -7,6 +7,13 @@ actually sends are updated, everything else — comments, key order, unknown
 keys, quoting, flow style — survives. The pipeline's read path
 (jobhelper.config) stays on PyYAML.
 
+Two ruamel comment-attachment quirks get special handling: comments AFTER a
+list ride on its last item, so replacing/emptying the list would drop the next
+section's header (_pop_section_tail / _append_section_tail); and comments
+between flow-style rows are discarded at parse time, so they're re-attached
+from the raw text (_rescue_dropped_comments). Flow-map interior padding
+(aligned columns) is NOT preserved — ruamel re-emits canonical spacing.
+
 Writes are atomic (temp file + os.replace) and preceded by a timestamped
 backup under data/backups/ (data/ is gitignored). A missing profile.yaml is
 seeded from profile.example.yaml so a fresh clone gets the example file's
@@ -26,12 +33,14 @@ from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.error import CommentMark
 from ruamel.yaml.scalarstring import (
     DoubleQuotedScalarString,
     FoldedScalarString,
     LiteralScalarString,
     SingleQuotedScalarString,
 )
+from ruamel.yaml.tokens import CommentToken
 
 from ..util import CONFIG_DIR as _DEFAULT_CONFIG_DIR
 from ..util import DATA_DIR
@@ -151,6 +160,67 @@ def _seq_str_template(old: CommentedSeq) -> Any:
     return None
 
 
+def _seq_dash_col(old: CommentedSeq) -> int:
+    """Column of the items' `-` markers (item value column minus 2)."""
+    data = getattr(getattr(old, "lc", None), "data", None) or {}
+    cols = [col for _, col in data.values()]
+    return (min(cols) - 2) if cols else 0
+
+
+def _pop_section_tail(old: CommentedSeq) -> str:
+    """Detach the section trailer from the last item's comment token.
+
+    ruamel attaches everything between a list's last item and the next key to
+    that item's comment token, so "trailing" comments that describe the NEXT
+    section (dedented left of the `-` markers) die with the item on a rebuild.
+    Returns those dedented lines (plus adjacent blank lines, '' if none) and
+    truncates the token to the part that really belongs to the item — its
+    inline comment and any continuation lines at or right of the markers.
+    """
+    entry = old.ca.items.get(len(old) - 1) if len(old) else None
+    tok = entry[0] if entry else None
+    if tok is None:
+        return ""
+    first_nl = tok.value.find("\n")
+    if first_nl < 0:
+        return ""
+    head, rest = tok.value[:first_nl + 1], tok.value[first_nl + 1:]
+    dash_col = _seq_dash_col(old)
+    lines = rest.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue  # blank lines side with the next comment line
+        if len(line) - len(line.lstrip(" ")) < dash_col:
+            while i > 0 and not lines[i - 1].strip():
+                i -= 1
+            tok.value = head + "".join(lines[:i])
+            if not tok.value.strip():  # nothing left but the item's newline
+                del old.ca.items[len(old) - 1]
+            return "".join(lines[i:])
+    return ""
+
+
+def _append_section_tail(seq: CommentedSeq, parent: CommentedMap, key: Any,
+                         tail: str) -> None:
+    """Re-attach a section trailer after a rebuilt list: onto its new last
+    item, or — when the list was emptied to `[]` — onto the parent key so the
+    comments still emit below `key: []`."""
+    if len(seq):
+        entry = seq.ca.items.get(len(seq) - 1)
+        if entry and entry[0] is not None:
+            entry[0].value += tail
+        else:
+            seq.ca.items[len(seq) - 1] = [
+                CommentToken("\n" + tail, CommentMark(0), None),
+                None, None, None]
+    else:
+        entry = parent.ca.items.setdefault(key, [None, None, None, None])
+        if entry[2] is not None:
+            entry[2].value += tail
+        else:
+            entry[2] = CommentToken("\n" + tail, CommentMark(0), None)
+
+
 def _rebuild_seq(old: CommentedSeq, new_list: list) -> CommentedSeq:
     """Replace a sequence's contents, carrying each surviving item's comment.
 
@@ -201,9 +271,54 @@ def merge_into(node: CommentedMap, new: dict[str, Any]) -> None:
             merge_into(old, val)
         elif isinstance(val, list) and isinstance(old, CommentedSeq):
             if not _equal(old, val):
+                tail = _pop_section_tail(old)
                 node[key] = _rebuild_seq(old, val)
+                if tail:
+                    _append_section_tail(node[key], node, key, tail)
         elif not _equal(old, val):
             node[key] = _to_node(val, str_template=old)
+
+
+def _rescue_dropped_comments(doc: CommentedMap, text: str) -> None:
+    """Re-attach comment blocks that ruamel discards at PARSE time.
+
+    ruamel 0.19 drops a full-line comment block sitting between two flow-style
+    sequence items when the earlier item has no inline comment (with one, the
+    block glues onto that token and survives) — e.g. the workday section
+    headers. Walk every sequence; where the raw file shows only comments and
+    blanks between a flow-style item and the next but the parsed seq holds no
+    comment token for it, rebuild the token from the raw lines verbatim.
+    """
+    lines = text.splitlines()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, CommentedMap):
+            for v in node.values():
+                walk(v)
+            return
+        if not isinstance(node, CommentedSeq):
+            return
+        data = getattr(getattr(node, "lc", None), "data", None) or {}
+        for idx in range(len(node) - 1):
+            prev = node[idx]
+            if idx in node.ca.items or not (
+                    isinstance(prev, (CommentedMap, CommentedSeq))
+                    and prev.fa.flow_style()):
+                continue  # a token, had one existed, would have caught the gap
+            pos, nxt = data.get(idx), data.get(idx + 1)
+            if not pos or not nxt:
+                continue
+            gap = lines[pos[0] + 1: nxt[0]]
+            if (any(ln.strip() for ln in gap) and all(
+                    not ln.strip() or ln.lstrip().startswith("#") for ln in gap)):
+                node.ca.items[idx] = [
+                    CommentToken("\n" + "".join(ln + "\n" for ln in gap),
+                                 CommentMark(0), None),
+                    None, None, None]
+        for item in node:
+            walk(item)
+
+    walk(doc)
 
 
 # ---- Write path ----------------------------------------------------------------
@@ -249,6 +364,8 @@ def save(name: str, data: dict[str, Any]) -> tuple[Path | None, bool]:
     if doc is None:
         doc = (_load_path(example_profile_path()) if name == "profile" else None) \
             or CommentedMap()
+    else:
+        _rescue_dropped_comments(doc, path.read_text(encoding="utf-8"))
     merge_into(doc, data)
     text = _dump_text(doc)
     if path.exists() and path.read_text(encoding="utf-8") == text:
