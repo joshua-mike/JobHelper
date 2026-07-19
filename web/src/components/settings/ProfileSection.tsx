@@ -156,6 +156,15 @@ export function ProfileSection({ status }: { status?: SettingsStatus }) {
               onChange={(v) => setIdent('work_authorization_status', v)}
             />
           </Field>
+          <Field
+            label="Credentials line (rendered under contact on the résumé, e.g. clearance + certs)"
+            className="sm:col-span-2"
+          >
+            <TextInput
+              value={ident.credentials_line}
+              onChange={(v) => setIdent('credentials_line', v)}
+            />
+          </Field>
           <Field label="Earliest start date">
             <TextInput
               value={ident.earliest_start_date}
@@ -477,7 +486,7 @@ export function ProfileSection({ status }: { status?: SettingsStatus }) {
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs font-medium text-slate-400">
-                Hard skills (name · years · proficiency)
+                Hard skills (name · years · proficiency · group)
               </span>
               <Button
                 variant="outline"
@@ -530,13 +539,26 @@ export function ProfileSection({ status }: { status?: SettingsStatus }) {
                   />
                   <input
                     type="text"
-                    className={`${inputCls} w-32 shrink-0`}
+                    className={`${inputCls} w-24 shrink-0`}
                     placeholder="proficiency"
                     value={sk.proficiency ?? ''}
                     onChange={(e) =>
                       update((d) => {
                         const list = [...(d.skills?.hard_skills ?? [])]
                         list[i] = { ...list[i], proficiency: e.target.value }
+                        d.skills = { ...(d.skills ?? {}), hard_skills: list }
+                      })
+                    }
+                  />
+                  <input
+                    type="text"
+                    className={`${inputCls} w-32 shrink-0`}
+                    placeholder="group"
+                    value={sk.group ?? ''}
+                    onChange={(e) =>
+                      update((d) => {
+                        const list = [...(d.skills?.hard_skills ?? [])]
+                        list[i] = { ...list[i], group: e.target.value }
                         d.skills = { ...(d.skills ?? {}), hard_skills: list }
                       })
                     }

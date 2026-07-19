@@ -26,6 +26,7 @@ PROFILE = {
     "identity": {"full_name": "Jane Doe", "email": "j@x.com", "phone": "555",
                  "city_state": "Remote (US)", "linkedin_url": "https://li/jane",
                  "work_authorization_status": "US authorized",
+                 "credentials_line": "Active Clearance  |  CompTIA Security+",
                  "requires_sponsorship": False, "willing_to_relocate": False,
                  "earliest_start_date": "2 weeks", "notice_period": "2 weeks"},
     "compensation": {"desired_salary_min": 120000, "desired_salary_max": 160000,
@@ -42,8 +43,10 @@ PROFILE = {
     ],
     "education": [{"institution": "State U", "degree": "B.S.", "field": "CS",
                    "grad_date": "2018-05"}],
-    "skills": {"hard_skills": [{"name": "Python"}, {"name": "FastAPI"},
-                               {"name": "PostgreSQL"}, {"name": "AWS"}],
+    "skills": {"hard_skills": [{"name": "Python", "group": "Languages"},
+                               {"name": "FastAPI", "group": "Languages"},
+                               {"name": "PostgreSQL", "group": "Data"},
+                               {"name": "AWS"}],
                "soft_skills": [], "certifications": []},
     "eeo": {"gender": "decline to self-identify"},
 }
@@ -104,6 +107,20 @@ def main() -> int:
     check(content["summary"].startswith("Backend engineer focused"), "summary tailored")
     check(len(notes) >= 1, "change notes captured")
 
+    print("== ITEM-13: credentials + skill groups through tailoring ==")
+    check(content["credentials"] == "Active Clearance  |  CompTIA Security+",
+          "credentials line passed through untouched")
+    sg = content["skill_groups"]
+    check([g["label"] for g in sg] == ["Languages", "Data", None],
+          f"group order follows the profile ({[g['label'] for g in sg]})")
+    check(sg[0]["skills"] == ["FastAPI", "Python"],
+          f"within-group order follows tailored relevance ({sg[0]['skills']})")
+    check(sg[1]["skills"] == ["PostgreSQL"] and sg[2]["skills"] == ["AWS"],
+          "dropped-by-LLM skills still land in their groups")
+    all_grouped = [s for g in sg for s in g["skills"]]
+    check("Rust" not in all_grouped and "Kubernetes" not in all_grouped,
+          "invented skills never reach the groups")
+
     print("== ATS-safe .docx render ==")
     out = RESUME_DIR / "_selftest.docx"
     build_resume(content, out)
@@ -112,6 +129,11 @@ def main() -> int:
     check(len(doc.tables) == 0, "zero tables (ATS-safe single column)")
     headings = [p.text for p in doc.paragraphs if p.runs and p.runs[0].bold]
     check(any(h == "WORK EXPERIENCE" for h in headings), "whitelisted heading present")
+    doc_lines = [p.text for p in doc.paragraphs if p.text.strip()]
+    check("Active Clearance  |  CompTIA Security+" in doc_lines,
+          "credentials line rendered in the docx")
+    check("Languages: FastAPI, Python" in doc_lines,
+          "grouped skills line rendered in tailored order")
     out.unlink(missing_ok=True)
 
     print("== screening answers ==")

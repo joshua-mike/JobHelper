@@ -45,6 +45,26 @@ def structural_failures(path: Path | str, content: dict) -> list[str]:
         if val and val not in head:
             failures.append(f"contact {label} not in first 5 lines: {val!r}")
 
+    # Credentials line (clearance/certs) belongs in the same head window.
+    cred = content.get("credentials")
+    if cred and cred not in head:
+        failures.append(f"credentials line not in first 5 lines: {cred!r}")
+
+    # Grouped skills: every group renders as a "Label: a, b, c" line carrying
+    # ALL of its skills — a dropped line silently loses those tokens.
+    for g in content.get("skill_groups") or []:
+        label = g.get("label")
+        names = [s for s in (g.get("skills") or []) if s]
+        if not label or not names:
+            continue
+        line = next((ln for ln in lines if ln.startswith(f"{label}:")), None)
+        if line is None:
+            failures.append(f"skills group line missing: {label}")
+            continue
+        for s in names:
+            if s not in line:
+                failures.append(f"skill missing from group {label!r}: {s!r}")
+
     for h in _expected_headings(content):
         if h not in lines:
             failures.append(f"section heading missing: {h}")

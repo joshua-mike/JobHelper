@@ -43,6 +43,7 @@ class Identity(_Permissive):
     linkedin_url: str | None = None
     portfolio_url: str | None = None
     work_authorization_status: str | None = None
+    credentials_line: str | None = None
     requires_sponsorship: bool | None = None
     willing_to_relocate: bool | None = None
     earliest_start_date: str | None = None
@@ -102,6 +103,7 @@ class HardSkill(_Permissive):
     name: str = Field(min_length=1)
     years: float | None = Field(None, ge=0)
     proficiency: str | None = None
+    group: str | None = None    # résumé skills-section group label (ITEM-13)
 
 
 class Certification(_Permissive):

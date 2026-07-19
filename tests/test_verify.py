@@ -142,6 +142,55 @@ def test_hidden_runs_fail():
               f"white-on-white run detected ({failures2})")
 
 
+GROUPED_CONTENT = {
+    **copy.deepcopy(CONTENT),
+    "credentials": "Active TS/SCI Clearance  |  CompTIA Security+",
+    "skill_groups": [
+        {"label": "Languages", "skills": ["C#", ".NET"]},
+        {"label": "Data", "skills": ["PostgreSQL"]},
+        {"label": None, "skills": ["AWS"]},
+    ],
+}
+
+
+def test_grouped_render_and_verify():
+    print("== ITEM-13: credentials line + grouped skills render & verify ==")
+    with tempfile.TemporaryDirectory() as td:
+        path = render(GROUPED_CONTENT, td)
+        lines = [p.text for p in Document(str(path)).paragraphs if p.text.strip()]
+        failures = V.structural_failures(path, GROUPED_CONTENT)
+    check(lines[2] == GROUPED_CONTENT["credentials"],
+          "credentials is the 3rd non-empty body line (under contact)")
+    check("Languages: C#, .NET" in lines, "grouped line 'Languages: C#, .NET'")
+    check("Data: PostgreSQL" in lines, "grouped line 'Data: PostgreSQL'")
+    check("AWS" in lines, "ungrouped skills render as a plain line")
+    check("C#, .NET, PostgreSQL, AWS" not in lines,
+          "flat skills line replaced by grouped lines")
+    check(failures == [], f"grouped round trip verifies clean ({failures})")
+
+
+def test_missing_credentials_or_group_fails():
+    print("== ITEM-13 mutation: flat render vs grouped expectation ==")
+    with tempfile.TemporaryDirectory() as td:
+        path = render(CONTENT, td)  # no credentials, flat skills
+        failures = V.structural_failures(path, GROUPED_CONTENT)
+    check(any("credentials" in f for f in failures),
+          f"missing credentials line detected ({failures})")
+    check(any("skills group line missing: Languages" in f for f in failures),
+          f"missing group line detected ({failures})")
+
+
+def test_group_skill_dropped_fails():
+    print("== ITEM-13 mutation: skill dropped from its group line ==")
+    broken = copy.deepcopy(GROUPED_CONTENT)
+    broken["skill_groups"][0]["skills"] = ["C#"]  # .NET vanished
+    with tempfile.TemporaryDirectory() as td:
+        path = render(broken, td)
+        failures = V.structural_failures(path, GROUPED_CONTENT)
+    check(any("skill missing from group" in f and ".NET" in f for f in failures),
+          f"dropped group member detected ({failures})")
+
+
 TABLE = [
     {"term": "C#", "category": "hard_skill", "required": True, "variants": []},
     {"term": "Kubernetes", "category": "hard_skill", "required": True,
@@ -178,6 +227,9 @@ def main() -> int:
     test_out_of_order_fails()
     test_missing_heading_fails()
     test_hidden_runs_fail()
+    test_grouped_render_and_verify()
+    test_missing_credentials_or_group_fails()
+    test_group_skill_dropped_fails()
     test_ats_report()
     print("\nALL VERIFY CHECKS PASSED")
     return 0

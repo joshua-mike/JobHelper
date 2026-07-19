@@ -57,15 +57,41 @@ def build_resume(content: dict[str, Any], path: Path) -> Path:
     if contact:
         _line(doc, contact, size=10)
 
+    # Credentials line (clearance + certs) directly under contact — recruiter
+    # boolean searches hit these literal tokens, so they belong at the top.
+    if content.get("credentials"):
+        _line(doc, content["credentials"], size=10)
+
     # --- Summary ---
     if content.get("summary"):
         _heading(doc, "Professional Summary")
         _line(doc, content["summary"])
 
-    # --- Skills (bare comma-separated tokens: NER-friendly) ---
+    # --- Skills ---
+    # Grouped: one plain "Label: a, b, c" line per group (parse-safe, no tables).
+    # Ungrouped fallback: the flat comma line (bare tokens: NER-friendly).
+    groups = content.get("skill_groups") or []
     skills = content.get("skills", [])
-    if skills:
+    if groups or skills:
         _heading(doc, "Skills")
+    if groups:
+        for g in groups:
+            names = [s for s in (g.get("skills") or []) if s]
+            if not names:
+                continue
+            label = g.get("label")
+            if label:
+                p = doc.add_paragraph()
+                r1 = p.add_run(f"{label}: ")
+                r1.bold = True
+                r1.font.size = Pt(11)
+                r1.font.name = FONT
+                r2 = p.add_run(", ".join(names))
+                r2.font.size = Pt(11)
+                r2.font.name = FONT
+            else:
+                _line(doc, ", ".join(names))
+    elif skills:
         _line(doc, ", ".join(skills))
 
     # --- Work Experience ---

@@ -242,6 +242,7 @@ export interface HardSkillData {
   name: string
   years?: number | null
   proficiency?: string
+  group?: string
 }
 
 export interface CertificationData {
@@ -267,6 +268,7 @@ export interface ProfileData {
     linkedin_url?: string
     portfolio_url?: string
     work_authorization_status?: string
+    credentials_line?: string
     requires_sponsorship?: boolean
     willing_to_relocate?: boolean
     earliest_start_date?: string

@@ -38,8 +38,21 @@ def fmt_month(ym: Any) -> str:
 def passthrough_resume(profile: dict) -> dict:
     ident = profile.get("identity", {}) or {}
     skills_cfg = profile.get("skills", {}) or {}
-    hard = [s.get("name") if isinstance(s, dict) else str(s)
-            for s in (skills_cfg.get("hard_skills") or [])]
+    hard: list[str] = []
+    groups: list[dict] = []  # [{"label": str|None, "skills": [names]}], profile order
+    by_label: dict = {}
+    for s in (skills_cfg.get("hard_skills") or []):
+        if isinstance(s, dict):
+            name, label = s.get("name"), (s.get("group") or None)
+        else:
+            name, label = str(s), None
+        if not name:
+            continue
+        hard.append(name)
+        if label not in by_label:
+            by_label[label] = {"label": label, "skills": []}
+            groups.append(by_label[label])
+        by_label[label]["skills"].append(name)
 
     experience = []
     for job in profile.get("work_history", []) or []:
@@ -62,19 +75,28 @@ def passthrough_resume(profile: dict) -> dict:
     } for e in (profile.get("education") or [])]
 
     links = [v for v in (ident.get("linkedin_url"), ident.get("portfolio_url")) if v]
-    return {
+    content = {
         "name": ident.get("full_name", ""),
         "email": ident.get("email", ""),
         "phone": ident.get("phone", ""),
         "location": ident.get("city_state", ""),
         "links": links,
         "summary": profile.get("summary", ""),
-        "skills": [s for s in hard if s],
+        "skills": hard,
         "experience": experience,
         "education": education,
         "certifications": [c.get("name") if isinstance(c, dict) else str(c)
                            for c in (skills_cfg.get("certifications") or [])],
     }
+    # Optional credentials line (clearance + certs) rendered directly under the
+    # contact line — literal recruiter search tokens belong at the top (ITEM-13).
+    if ident.get("credentials_line"):
+        content["credentials"] = str(ident["credentials_line"]).strip()
+    # Grouped skills only when at least one skill declares a group; otherwise the
+    # renderer keeps the flat comma line.
+    if any(g["label"] for g in groups):
+        content["skill_groups"] = groups
+    return content
 
 
 # ---- LLM-tailored resume -----------------------------------------------------
@@ -199,6 +221,7 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
     ordered: list[str] = []
     used: set[str] = set()
     alias_notes: list[str] = []
+    shown_by_canon: dict[str, str] = {}   # canon.lower() -> rendered name
     for entry in result.get("skills_order", []):
         if isinstance(entry, dict):
             skill = str(entry.get("skill") or "").strip()
@@ -214,12 +237,30 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
             if len(display) <= DISPLAY_AS_MAX and term_pattern(canon).search(display):
                 shown = display
                 alias_notes.append(f"displayed '{canon}' as '{display}'")
+        shown_by_canon[canon.lower()] = shown
         ordered.append(shown)
     # Append any profile skills the model dropped, so nothing real is lost.
     for s in profile_skills:
         if s.lower() not in used:
+            shown_by_canon[s.lower()] = s
             ordered.append(s)
     content["skills"] = ordered
+
+    # Rebuild skill groups (ITEM-13): group membership and group order come from
+    # the profile; order WITHIN each group follows the tailored relevance order.
+    if base.get("skill_groups"):
+        pos = {shown.lower(): i for i, shown in enumerate(ordered)}
+
+        def _rank(canon: str) -> int:
+            shown = shown_by_canon.get(canon.lower(), canon)
+            return pos.get(shown.lower(), len(ordered))
+
+        content["skill_groups"] = [
+            {"label": g.get("label"),
+             "skills": [shown_by_canon.get(c.lower(), c)
+                        for c in sorted(g.get("skills") or [], key=_rank)]}
+            for g in base["skill_groups"]
+        ]
 
     # Bullets: company/title/dates stay fixed; only bullets come from the model.
     by_index = {jb.get("index"): jb.get("bullets", []) for jb in result.get("jobs", [])}

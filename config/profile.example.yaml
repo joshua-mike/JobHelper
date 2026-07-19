@@ -18,6 +18,9 @@ identity:
   linkedin_url: "https://www.linkedin.com/in/janedoe"
   portfolio_url: "https://janedoe.dev"
   work_authorization_status: "Authorized to work in the US (no sponsorship required)"
+  # Optional: rendered as its own line directly under the contact line on the
+  # résumé — put literal credential search tokens here (clearance level, certs).
+  credentials_line: ""
   requires_sponsorship: false
   willing_to_relocate: false
   earliest_start_date: "2 weeks' notice"
@@ -79,13 +82,15 @@ education:
     gpa: null
 
 skills:
+  # Optional `group`: skills with a group render as "Group: a, b, c" lines on
+  # the résumé; if no skill has a group, a single flat comma line is rendered.
   hard_skills:
-    - { name: "Python", years: 6, proficiency: "expert" }
-    - { name: "FastAPI", years: 4, proficiency: "advanced" }
-    - { name: "PostgreSQL", years: 6, proficiency: "advanced" }
-    - { name: "AWS", years: 5, proficiency: "advanced" }
-    - { name: "Docker", years: 5, proficiency: "advanced" }
-    - { name: "REST APIs", years: 6, proficiency: "expert" }
+    - { name: "Python", years: 6, proficiency: "expert", group: "Languages & Frameworks" }
+    - { name: "FastAPI", years: 4, proficiency: "advanced", group: "Languages & Frameworks" }
+    - { name: "PostgreSQL", years: 6, proficiency: "advanced", group: "Data" }
+    - { name: "AWS", years: 5, proficiency: "advanced", group: "DevOps & Infrastructure" }
+    - { name: "Docker", years: 5, proficiency: "advanced", group: "DevOps & Infrastructure" }
+    - { name: "REST APIs", years: 6, proficiency: "expert", group: "Languages & Frameworks" }
     - { name: "Airflow", years: 3, proficiency: "intermediate" }
     - { name: "Redis", years: 4, proficiency: "advanced" }
   soft_skills: ["ownership", "mentoring", "written communication"]
