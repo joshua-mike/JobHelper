@@ -106,6 +106,7 @@ export interface ReviewJob {
   ats: string
   can_assist: boolean
   ats_report: AtsReport | null
+  workday_skills: string[] | null
   date_posted: string | null
   first_seen_at: string | null
   proposed_in_run_id: string | null

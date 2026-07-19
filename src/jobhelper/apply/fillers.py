@@ -65,6 +65,63 @@ def is_resume_descriptor(parts: list[str]) -> bool:
     return any(_matches(p, RESUME_PATTERNS) for p in parts)
 
 
+def _kw_matches_skill(skill: str, kw: dict) -> bool:
+    """Boundary-aware containment either direction, term or any variant —
+    'AWS' matches 'Amazon Web Services (AWS)', 'Java' never matches
+    'JavaScript'."""
+    from ..tailor.keywords import term_pattern
+    for t in [kw.get("term", ""), *(kw.get("variants") or [])]:
+        t = str(t).strip()
+        if not t:
+            continue
+        if term_pattern(t).search(skill) or term_pattern(skill).search(t):
+            return True
+    return False
+
+
+def workday_skills(profile: dict, keyword_table: list[dict] | None) -> list[str]:
+    """Copy-ready list for Workday's structured skills fields (FR-9.1/9.2).
+
+    Workday grades what the candidate LITERALLY states against its skills
+    taxonomy and infers little — the form, not the parsed resume, is the
+    primary scored input. Output is the profile's own canonical names only
+    (never JD terms the profile lacks): JD-required matches first (keyword-
+    table rank order), then JD-preferred matches, then the remaining hard
+    skills in profile order, certifications appended last. Advisory text for
+    the human — nothing is auto-filled.
+    """
+    skills_cfg = profile.get("skills") or {}
+    names: list[str] = []
+    for s in skills_cfg.get("hard_skills") or []:
+        n = s.get("name") if isinstance(s, dict) else str(s)
+        if n:
+            names.append(str(n))
+
+    required = [kw for kw in keyword_table or [] if kw.get("required")]
+    preferred = [kw for kw in keyword_table or [] if not kw.get("required")]
+
+    ordered: list[str] = []
+    used: set[str] = set()
+
+    def take(name: str) -> None:
+        if name.lower() not in used:
+            used.add(name.lower())
+            ordered.append(name)
+
+    for bucket in (required, preferred):
+        for kw in bucket:
+            for n in names:
+                if _kw_matches_skill(n, kw):
+                    take(n)
+    for n in names:
+        take(n)
+    for c in skills_cfg.get("certifications") or []:
+        n = c.get("name") if isinstance(c, dict) else str(c)
+        if n:
+            take(str(n))
+    return ordered
+
+
 def detect_ats(url: str) -> str:
     u = (url or "").lower()
     if "greenhouse.io" in u:

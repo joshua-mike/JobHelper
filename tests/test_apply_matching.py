@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from jobhelper.apply.fillers import (apply_url, build_apply_data, detect_ats,
                                      is_resume_descriptor, match_descriptor,
-                                     match_field, split_name)
+                                     match_field, split_name, workday_skills)
 
 
 def check(cond: bool, msg: str) -> None:
@@ -90,6 +90,42 @@ def main() -> int:
     check(d["first_name"] == "Jane" and d["last_name"] == "Doe", "name split into data")
     check(d["email"] == "j@x.com" and d["website"] == "https://j.dev", "contact mapped")
     check(d["cover_letter"] == "Dear team" and d["resume_path"] == "data/r.docx", "job fields mapped")
+
+    print("== workday_skills (ITEM-16: taxonomy list, JD-required first) ==")
+    wd_profile = {"skills": {
+        "hard_skills": [{"name": "Java"}, {"name": "C#"}, {"name": "AWS"},
+                        {"name": "Oracle PL/SQL"}, {"name": "Docker"}],
+        "certifications": [{"name": "CompTIA Security+"}],
+    }}
+    table = [
+        {"term": "Oracle PL/SQL", "category": "hard_skill", "required": True,
+         "variants": []},
+        {"term": "Amazon Web Services (AWS)", "category": "hard_skill",
+         "required": True, "variants": ["AWS"]},
+        {"term": "Kubernetes", "category": "hard_skill", "required": True,
+         "variants": ["K8s"]},
+        {"term": "JavaScript", "category": "hard_skill", "required": False,
+         "variants": []},
+        {"term": "Docker", "category": "hard_skill", "required": False,
+         "variants": []},
+    ]
+    wd = workday_skills(wd_profile, table)
+    check(wd[:2] == ["Oracle PL/SQL", "AWS"],
+          f"JD-required matches first, in table order ({wd})")
+    check(wd[2] == "Docker", f"JD-preferred match next ({wd})")
+    check("Kubernetes" not in wd, "JD-required term absent from profile is NOT added")
+    check("Java" in wd and wd.index("Java") > wd.index("Docker"),
+          "unmatched profile skills appended after JD matches")
+    check(wd[-1] == "CompTIA Security+", "certifications appended last")
+    check(len(wd) == len(set(s.lower() for s in wd)), "no duplicates")
+    # 'JavaScript' preferred term must not pull in profile 'Java' (boundary).
+    check(wd.index("Java") > wd.index("Docker"),
+          "'JavaScript' does not rank 'Java' as a JD match")
+
+    wd2 = workday_skills(wd_profile, None)
+    check(wd2[:5] == ["Java", "C#", "AWS", "Oracle PL/SQL", "Docker"]
+          and wd2[-1] == "CompTIA Security+",
+          "no keyword table -> profile order + certs")
 
     print("\nALL APPLY-MATCHING CHECKS PASSED")
     return 0

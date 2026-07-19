@@ -38,6 +38,38 @@ function CoverLetter({ text }: { text: string }) {
   )
 }
 
+function WorkdaySkills({ skills }: { skills: string[] }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    void navigator.clipboard.writeText(skills.join(', ')).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <details className="mt-3">
+      <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-300">
+        Workday skills list ({skills.length})
+      </summary>
+      <div className="mt-2">
+        <p className="text-xs leading-relaxed text-slate-500">
+          Workday scores what you literally enter in its structured skills
+          fields — it won&apos;t infer unstated skills from the résumé. Add
+          these (your real skills, JD-required first) to the application&apos;s
+          skills section.
+        </p>
+        <Button variant="outline" className="mt-2 px-2.5 py-1 text-xs" onClick={copy}>
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? 'Copied' : 'Copy skills list'}
+        </Button>
+        <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-slate-800 bg-black/40 p-3 font-sans text-xs leading-relaxed text-slate-300">
+          {skills.join(', ')}
+        </pre>
+      </div>
+    </details>
+  )
+}
+
 export function ReviewJobCard({
   job,
   onAction,
@@ -179,6 +211,10 @@ export function ReviewJobCard({
       )}
 
       {job.cover_letter_text && <CoverLetter text={job.cover_letter_text} />}
+
+      {job.ats === 'workday' && (job.workday_skills?.length ?? 0) > 0 && (
+        <WorkdaySkills skills={job.workday_skills as string[]} />
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         {job.can_assist && (

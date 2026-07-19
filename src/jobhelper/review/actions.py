@@ -31,7 +31,7 @@ def loads_json(v, default):
 
 
 def enrich(job: dict) -> dict:
-    from ..apply.fillers import detect_ats
+    from ..apply.fillers import detect_ats, workday_skills
     job["musthaves_met"] = loads_json(job.get("llm_musthaves_met"), [])
     job["missing"] = loads_json(job.get("llm_missing"), [])
     job["notes"] = loads_json(job.get("change_log"), [])
@@ -45,6 +45,14 @@ def enrich(job: dict) -> dict:
     job["ats"] = detect_ats(job.get("url", ""))
     # Assisted apply only helps on real hosted ATS forms, not aggregator listings.
     job["can_assist"] = job["ats"] in ("greenhouse", "lever", "ashby")
+    # Workday scores its structured skills fields against a taxonomy (FR-9.1/
+    # 9.2) — hand the human a copy-ready list of genuine skills, JD-required
+    # first. Workday apply itself stays manual by design.
+    job["workday_skills"] = None
+    if job["ats"] == "workday":
+        from ..config import load_profile
+        table = (job["ats_report"] or {}).get("keyword_table")
+        job["workday_skills"] = workday_skills(load_profile(), table)
     return job
 
 

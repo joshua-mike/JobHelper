@@ -23,7 +23,7 @@ _FIELDS = (
     "updated_at",
     # added by enrich():
     "display_score", "musthaves_met", "missing", "notes", "screening",
-    "has_resume", "ats", "can_assist", "ats_report",
+    "has_resume", "ats", "can_assist", "ats_report", "workday_skills",
 )
 
 
