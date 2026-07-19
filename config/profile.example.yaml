@@ -102,6 +102,23 @@ skills:
 
 # Voluntary self-ID. Always optional, confidential, and not seen by decision
 # makers. Defaults are "decline"; change only if you choose to disclose.
+# Optional role-family emphasis presets. A variant is auto-selected per job
+# when >=2 of its distinct signal terms appear in the JD (word-boundary
+# aware); config order = precedence; `default: true` is the fallback. A
+# variant only steers the summary lead + skills-group order — never facts.
+variants:
+  platform:
+    signals: ["kubernetes", "terraform", "infrastructure", "devops", "sre"]
+    summary_angle: >
+      Lead with platform/infrastructure ownership — CI/CD, AWS, Docker —
+      backed by production Python services.
+    skills_group_order: ["DevOps & Infrastructure", "Languages & Frameworks", "Data"]
+  backend-general:
+    default: true
+    summary_angle: >
+      Lead with senior backend engineering depth — Python, FastAPI,
+      PostgreSQL — and measurable reliability work.
+
 eeo:
   race_ethnicity: "decline to self-identify"
   gender: "decline to self-identify"

@@ -128,6 +128,14 @@ class Eeo(_Permissive):
     disability_status: str | None = None
 
 
+class VariantConfig(_Permissive):
+    """Role-family emphasis preset (ITEM-15) — selects among profile facts."""
+    signals: list[str] | None = None
+    summary_angle: str | None = None
+    skills_group_order: list[str] | None = None
+    default: bool | None = None
+
+
 class ProfileConfig(_Permissive):
     identity: Identity | None = None
     compensation: Compensation | None = None
@@ -137,6 +145,7 @@ class ProfileConfig(_Permissive):
     skills: Skills | None = None
     eeo: Eeo | None = None
     qa_bank: dict[str, str] | None = None
+    variants: dict[str, VariantConfig] | None = None
 
 
 # ---- criteria.yaml --------------------------------------------------------------

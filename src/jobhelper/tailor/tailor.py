@@ -13,6 +13,7 @@ from typing import Any
 from ..config import years_of_experience
 from ..llm import LLM
 from .keywords import term_pattern
+from .variants import apply_group_order
 
 # Longest allowed skills-line alias ("Amazon Web Services (AWS)" is 26 chars;
 # anything much longer is the model padding, not mirroring).
@@ -131,7 +132,10 @@ TAILOR_INSTRUCTIONS = (
     "adjacent, bridge the pivot by citing the candidate's in-progress ML "
     "certification from the profile. Avoid generic AI-resume phrasing "
     "('results-driven', 'proven track record', 'dynamic') — specific and "
-    "verifiable beats polished and generic."
+    "verifiable beats polished and generic.\n"
+    "When a VARIANT EMPHASIS block is present, let it steer what the summary "
+    "leads with and how skills are ordered; it selects among profile facts and "
+    "never licenses new ones."
 )
 
 TAILOR_SCHEMA: dict[str, Any] = {
@@ -187,9 +191,15 @@ def _keyword_block(keywords: list[dict]) -> str:
 
 def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
                   keywords: list[dict] | None = None,
+                  variant_name: str | None = None,
+                  variant: dict | None = None,
                   ) -> tuple[dict, list[str], list[str]]:
     """Returns (content, change_notes, missing_required)."""
     base = passthrough_resume(profile)
+    # Variant group ordering applies to every path (works keyless too); the
+    # summary angle below additionally needs the LLM.
+    if variant:
+        apply_group_order(base, variant.get("skills_group_order"))
     if not llm.available:
         return base, ["Tailoring skipped (no ANTHROPIC_API_KEY) — using full "
                       "profile resume."], []
@@ -213,10 +223,15 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
     # The keyword table is the distilled JD (checker's view); the raw excerpt
     # stays capped at 5k as before.
     keyword_part = f"{_keyword_block(keywords)}\n\n" if keywords else ""
+    variant_part = ""
+    if variant and variant.get("summary_angle"):
+        variant_part = (f"VARIANT EMPHASIS ({variant_name}): "
+                        f"{variant['summary_angle']}\n\n")
     user = (
         f"JOB POSTING\nTitle: {job.get('title','')}\nCompany: {job.get('company','')}\n\n"
         f"{(job.get('description_clean') or '')[:5000]}\n\n"
         f"{keyword_part}"
+        f"{variant_part}"
         f"CANDIDATE SUMMARY: {profile.get('summary','')}\n\n"
         f"CANDIDATE SKILLS (use only these): {', '.join(profile_skills)}\n\n"
         f"CANDIDATE JOBS AND THEIR ACHIEVEMENTS (reword/select only from each):\n"
@@ -295,6 +310,8 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
     content["experience"] = new_exp
 
     notes = list(result.get("change_notes", [])) + alias_notes
+    if variant_name:
+        notes.append(f"variant '{variant_name}' emphasis applied")
     missing_required = [s for s in (str(m).strip() for m in
                                     result.get("missing_required") or []) if s]
     return content, notes, missing_required

@@ -78,6 +78,7 @@ export interface AtsReport {
   missing_required?: string[]
   warnings?: string[]
   error?: string
+  variant?: { name: string; signals: string[] } | null
 }
 
 export interface ReviewJob {
@@ -289,6 +290,15 @@ export interface ProfileData {
   skills?: SkillsData
   eeo?: Record<string, string>
   qa_bank?: Record<string, string>
+  variants?: Record<string, VariantData>
+  [key: string]: unknown
+}
+
+export interface VariantData {
+  signals?: string[]
+  summary_angle?: string
+  skills_group_order?: string[]
+  default?: boolean
   [key: string]: unknown
 }
 

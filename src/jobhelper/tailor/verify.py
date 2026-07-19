@@ -126,7 +126,8 @@ def structural_failures(path: Path | str, content: dict) -> list[str]:
 
 def build_ats_report(keyword_table: list[dict] | None, text: str,
                      missing_required: list[str] | None,
-                     distinctive_texts: list[str] | None = None) -> dict:
+                     distinctive_texts: list[str] | None = None,
+                     variant: dict | None = None) -> dict:
     """Assemble the jobs.ats_report blob (coverage + keyword warnings need a
     table; metric and distinctive warnings only need the text)."""
     report: dict = {
@@ -135,6 +136,8 @@ def build_ats_report(keyword_table: list[dict] | None, text: str,
         "missing_required": list(missing_required or []),
         "warnings": [],
     }
+    if variant:
+        report["variant"] = variant   # {"name": ..., "signals": [...]}
     if keyword_table:
         cov = coverage(text, keyword_table)
         report["coverage"] = {"required_present": cov["required_present"],

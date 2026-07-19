@@ -92,8 +92,17 @@ export function ReviewJobCard({
         </div>
       )}
 
-      {job.ats_report && (job.ats_report.coverage || job.ats_report.error) && (
+      {job.ats_report &&
+        (job.ats_report.coverage || job.ats_report.error || job.ats_report.variant) && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {job.ats_report.variant?.name && (
+            <Badge tone="slate">
+              variant: {job.ats_report.variant.name}
+              {job.ats_report.variant.signals?.length
+                ? ` (${job.ats_report.variant.signals.slice(0, 3).join(', ')})`
+                : ''}
+            </Badge>
+          )}
           {job.ats_report.coverage && (
             <Badge
               tone={

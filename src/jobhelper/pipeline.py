@@ -17,8 +17,8 @@ from .rank import Judge, Scorer, passes
 from .sources import build_sources
 from .tailor import (build_ats_report, build_resume, cover_letter,
                      distinctive_achievements, extract_docx_text,
-                     extract_keywords, screening_answers, structural_failures,
-                     tailor_resume)
+                     extract_keywords, screening_answers, select_variant,
+                     structural_failures, tailor_resume)
 from .util import RESUME_DIR, get_logger
 
 log = get_logger()
@@ -173,8 +173,12 @@ def run(use_cache: bool = False) -> dict:
             # None in no-LLM mode or on a dead extraction call — which must
             # not cost the day's proposals, so we tailor without it.
             keywords = extract_keywords(llm, tailor_model, job)
+            # Role-family emphasis: pure-code selection from JD signals.
+            variant_name, variant_cfg, variant_signals = select_variant(
+                profile, job)
             content, notes, missing_required = tailor_resume(
-                llm, tailor_model, profile, job, keywords=keywords)
+                llm, tailor_model, profile, job, keywords=keywords,
+                variant_name=variant_name, variant=variant_cfg)
 
             # Job id is the folder; the filename is recruiter-facing.
             fname = f"{name_slug}_{_safe(job.get('title') or 'Role', 40)}.docx"
@@ -188,10 +192,13 @@ def run(use_cache: bool = False) -> dict:
                 raise RuntimeError("resume failed verification: "
                                    + "; ".join(failures))
 
+            variant_blob = ({"name": variant_name, "signals": variant_signals}
+                            if variant_name else None)
             if keywords:
                 report = build_ats_report(
                     keywords, extract_docx_text(resume_path), missing_required,
-                    distinctive_texts=distinctive_achievements(profile))
+                    distinctive_texts=distinctive_achievements(profile),
+                    variant=variant_blob)
             elif llm.available:
                 report = {"error": "keyword extraction failed"}
             else:
