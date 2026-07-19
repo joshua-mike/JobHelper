@@ -7,6 +7,8 @@ hard-fail the job (pipeline marks status='error'); model-behavior findings
 """
 from __future__ import annotations
 
+import re
+from collections import Counter
 from pathlib import Path
 
 from docx import Document
@@ -16,6 +18,28 @@ from .keywords import FREQUENCY_CAP, coverage
 from .resume_docx import daterange
 
 _WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+
+# Metric-once rule (ITEM-14): a metric may appear in the summary plus one
+# bullet — the same 2-placement budget keywords get — never more.
+METRIC_CAP = 2
+
+# Metrics are percentages (99.9%, 99%+), N+ counts (10,000+), and dollar
+# amounts ($1.2M). Deliberately NOT bare numbers: 'OAuth 2.0', 'RFC 6238',
+# and '8570/8140' are spec tokens, not achievements.
+_METRIC_RE = re.compile(
+    r"\$\d[\d,]*(?:\.\d+)?[KMBkmb]?|\d[\d,]*(?:\.\d+)?%\+?|\d[\d,]*\+")
+
+# A distinctive achievement "survives" when most of its content words are
+# still present — light rewording passes, dropping or gutting it does not.
+_SURVIVAL_THRESHOLD = 0.6
+
+
+def _survives(achievement: str, text: str) -> bool:
+    words = set(re.findall(r"[a-z0-9][a-z0-9.+#/-]{3,}", achievement.lower()))
+    if not words:
+        return False
+    text_l = text.lower()
+    return sum(1 for w in words if w in text_l) / len(words) >= _SURVIVAL_THRESHOLD
 
 
 def extract_docx_text(path: Path | str) -> str:
@@ -101,8 +125,10 @@ def structural_failures(path: Path | str, content: dict) -> list[str]:
 
 
 def build_ats_report(keyword_table: list[dict] | None, text: str,
-                     missing_required: list[str] | None) -> dict:
-    """Assemble the jobs.ats_report blob (coverage + warnings need a table)."""
+                     missing_required: list[str] | None,
+                     distinctive_texts: list[str] | None = None) -> dict:
+    """Assemble the jobs.ats_report blob (coverage + keyword warnings need a
+    table; metric and distinctive warnings only need the text)."""
     report: dict = {
         "keyword_table": keyword_table,
         "coverage": None,
@@ -118,4 +144,18 @@ def build_ats_report(keyword_table: list[dict] | None, text: str,
             if n > FREQUENCY_CAP:
                 report["warnings"].append(
                     f"'{term}' appears {n}x document-wide (cap {FREQUENCY_CAP})")
+
+    # Metric-once rule (ITEM-14): repeated metrics read as padding to humans
+    # and AI summarizers alike.
+    for token, n in Counter(_METRIC_RE.findall(text)).items():
+        if n > METRIC_CAP:
+            report["warnings"].append(
+                f"metric '{token}' appears {n}x document-wide (cap {METRIC_CAP})")
+
+    # Distinctive-survival check (FR-5.2): if every flagged achievement was
+    # reworded away, the resume summarizes like everyone else's.
+    if distinctive_texts and not any(_survives(t, text) for t in distinctive_texts):
+        report["warnings"].append(
+            "no distinctive achievement survived tailoring (FR-5.2) — "
+            "flagged specifics were dropped or reworded beyond recognition")
     return report

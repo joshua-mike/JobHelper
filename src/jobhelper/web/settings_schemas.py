@@ -68,6 +68,7 @@ class Achievement(_Permissive):
     text: str = Field(min_length=1)
     skills_used: list[str] | None = None
     verified: bool | None = None
+    distinctive: bool | None = None   # FR-5.2: tailor must keep one intact (ITEM-14)
 
 
 class WorkEntry(_Permissive):

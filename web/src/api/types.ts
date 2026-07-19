@@ -217,6 +217,7 @@ export interface AchievementData {
   text: string
   skills_used?: string[]
   verified?: boolean
+  distinctive?: boolean
 }
 
 export interface WorkEntryData {

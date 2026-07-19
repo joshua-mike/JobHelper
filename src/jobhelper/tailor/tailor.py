@@ -117,7 +117,21 @@ TAILOR_INSTRUCTIONS = (
     "quantified outcome, using ONLY numbers already present in the achievements.\n"
     "Skills line: each entry may set display_as to mirror the JD — the acronym/"
     "expansion pair or the JD's exact phrasing ONLY (e.g. 'Amazon Web Services "
-    "(AWS)' for 'AWS'). Never add versions, certifications, or proficiency levels."
+    "(AWS)' for 'AWS'). Never add versions, certifications, or proficiency levels.\n"
+    "Embedding strategy (modern screeners score the natural language in context, "
+    "not just keyword hits): write every bullet as a complete outcome sentence "
+    "that names the skill in working context ('built REST APIs in ASP.NET Web "
+    "API against Oracle'), never a keyword fragment or list. Achievements marked "
+    "[DISTINCTIVE] are the candidate's memorable, verifiable specifics — keep at "
+    "least one in the output essentially intact (light rewording only); they are "
+    "what survives an AI summarizer. Use each quantified metric at most once "
+    "across the whole resume — choose its strongest placement and drop repeats. "
+    "The summary must state the target function in the posting's own vocabulary "
+    "where the candidate's real work supports it; if the posting is ML/AI-"
+    "adjacent, bridge the pivot by citing the candidate's in-progress ML "
+    "certification from the profile. Avoid generic AI-resume phrasing "
+    "('results-driven', 'proven track record', 'dynamic') — specific and "
+    "verifiable beats polished and generic."
 )
 
 TAILOR_SCHEMA: dict[str, Any] = {
@@ -183,9 +197,16 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
     wh = profile.get("work_history", []) or []
     job_blocks = []
     for i, j in enumerate(wh):
-        achs = [a.get("text") if isinstance(a, dict) else str(a)
-                for a in (j.get("achievements") or [])]
-        listed = "\n".join(f"    - {t}" for t in achs)
+        lines = []
+        for a in (j.get("achievements") or []):
+            if isinstance(a, dict):
+                t, distinct = a.get("text"), bool(a.get("distinctive"))
+            else:
+                t, distinct = str(a), False
+            if t:
+                tag = "[DISTINCTIVE] " if distinct else ""
+                lines.append(f"    - {tag}{t}")
+        listed = "\n".join(lines)
         job_blocks.append(f"[index {i}] {j.get('title','')} @ {j.get('company','')}\n{listed}")
     profile_skills = base["skills"]
 
@@ -277,6 +298,17 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
     missing_required = [s for s in (str(m).strip() for m in
                                     result.get("missing_required") or []) if s]
     return content, notes, missing_required
+
+
+def distinctive_achievements(profile: dict) -> list[str]:
+    """Texts of achievements flagged distinctive (FR-5.2) — the verifier checks
+    that at least one survives tailoring essentially intact."""
+    out: list[str] = []
+    for job in profile.get("work_history", []) or []:
+        for a in job.get("achievements") or []:
+            if isinstance(a, dict) and a.get("distinctive") and a.get("text"):
+                out.append(str(a["text"]))
+    return out
 
 
 # ---- Cover letter (LLM only) -------------------------------------------------

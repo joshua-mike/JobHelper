@@ -50,9 +50,12 @@ work_history:
     employment_type: "Full-time"
     summary: "Owned the billing and usage-metering services."
     achievements:
+      # distinctive: true marks a memorable, verifiable specific the tailor
+      # must keep essentially intact in every resume (survives AI summarizers).
       - text: "Rebuilt the usage-metering pipeline, cutting nightly batch time from 6h to 40min."
         skills_used: ["Python", "PostgreSQL", "Airflow", "AWS"]
         verified: true
+        distinctive: true
       - text: "Designed and shipped a self-serve billing API used by 12k customers."
         skills_used: ["Python", "FastAPI", "Stripe", "REST"]
         verified: true

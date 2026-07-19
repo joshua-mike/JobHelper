@@ -16,8 +16,9 @@ from .llm import LLM
 from .rank import Judge, Scorer, passes
 from .sources import build_sources
 from .tailor import (build_ats_report, build_resume, cover_letter,
-                     extract_docx_text, extract_keywords, screening_answers,
-                     structural_failures, tailor_resume)
+                     distinctive_achievements, extract_docx_text,
+                     extract_keywords, screening_answers, structural_failures,
+                     tailor_resume)
 from .util import RESUME_DIR, get_logger
 
 log = get_logger()
@@ -189,7 +190,8 @@ def run(use_cache: bool = False) -> dict:
 
             if keywords:
                 report = build_ats_report(
-                    keywords, extract_docx_text(resume_path), missing_required)
+                    keywords, extract_docx_text(resume_path), missing_required,
+                    distinctive_texts=distinctive_achievements(profile))
             elif llm.available:
                 report = {"error": "keyword extraction failed"}
             else:

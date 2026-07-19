@@ -381,6 +381,17 @@ export function ProfileSection({ status }: { status?: SettingsStatus }) {
                         }
                         label="Metric verified"
                       />
+                      <Switch
+                        checked={ach.distinctive ?? false}
+                        onChange={(v) =>
+                          setWork((l) => {
+                            const achs = [...(l[i].achievements ?? [])]
+                            achs[j] = { ...achs[j], distinctive: v }
+                            l[i] = { ...l[i], achievements: achs }
+                          })
+                        }
+                        label="Distinctive"
+                      />
                       <button
                         type="button"
                         className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-rose-400"

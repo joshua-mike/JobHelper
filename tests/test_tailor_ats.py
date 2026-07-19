@@ -22,7 +22,8 @@ PROFILE = {
     "work_history": [
         {"company": "Acme Cloud", "title": "Senior Software Engineer",
          "location": "Remote", "start_date": "2021-03", "end_date": "Present",
-         "achievements": [{"text": "Shipped billing API on AWS."}]},
+         "achievements": [{"text": "Shipped billing API on AWS.", "distinctive": True},
+                          {"text": "Improved deploys."}]},
     ],
     "education": [],
     "skills": {"hard_skills": [{"name": "Python"}, {"name": "FastAPI"},
@@ -49,6 +50,7 @@ class FakeLLM:
         self.last_user = None
 
     def structured(self, system, user, *, schema, tool_name, model, max_tokens=1024):
+        self.last_system = system
         self.last_user = user
         self.last_schema = schema
         return self._result
@@ -140,6 +142,24 @@ def test_keyword_injection():
     check("KEYWORD TABLE" not in llm2.last_user, "no table block when keywords absent")
 
 
+def test_distinctive_and_embedding_prompt():
+    print("== ITEM-14: [DISTINCTIVE] tagging + embedding instructions ==")
+    _, _, _, llm = run_tailor(dict(BASE_RESULT))
+    check("[DISTINCTIVE] Shipped billing API on AWS." in llm.last_user,
+          "flagged achievement tagged in the prompt")
+    check("- Improved deploys." in llm.last_user
+          and "[DISTINCTIVE] Improved deploys." not in llm.last_user,
+          "unflagged achievement left untagged")
+    check("[DISTINCTIVE]" in llm.last_system,
+          "instructions explain the DISTINCTIVE tag")
+    check("at most once" in llm.last_system,
+          "metric-once rule present in instructions")
+    check("complete outcome sentence" in llm.last_system,
+          "full-sentence (embedding) rule present in instructions")
+    check(T.distinctive_achievements(PROFILE) == ["Shipped billing API on AWS."],
+          "distinctive_achievements collects flagged texts")
+
+
 def test_no_llm_and_failure():
     print("== degradation ==")
     class NoLLM:
@@ -160,6 +180,7 @@ def main() -> int:
     test_skills_integrity()
     test_missing_required()
     test_keyword_injection()
+    test_distinctive_and_embedding_prompt()
     test_no_llm_and_failure()
     print("\nALL TAILOR-ATS CHECKS PASSED")
     return 0

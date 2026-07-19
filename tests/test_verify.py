@@ -219,6 +219,39 @@ def test_ats_report():
           "no-table report has no coverage and no warnings")
 
 
+def test_metric_cap():
+    print("== ITEM-14: metric-once warnings ==")
+    text = ("Cut costs 50% in Q1. Improved throughput 50% again. Reduced 50% more. "
+            "Serving 10,000+ users on a platform built for 10,000+ users. "
+            "OAuth 2.0 with OAuth 2.0 and OAuth 2.0 (RFC 6238, DoD 8570/8140).")
+    report = V.build_ats_report(None, text, None)
+    check(any("metric '50%' appears 3x" in w for w in report["warnings"]),
+          f"repeated 50% flagged ({report['warnings']})")
+    check(not any("10,000+" in w for w in report["warnings"]),
+          "metric at the cap (2x) not flagged")
+    check(not any("2.0" in w or "8570" in w or "6238" in w
+                  for w in report["warnings"]),
+          "spec tokens (OAuth 2.0 / RFC 6238 / 8570) are not metrics")
+
+
+def test_distinctive_survival():
+    print("== ITEM-14: distinctive-survival warnings ==")
+    ach = ("Implemented OAuth 2.0 email authentication against Exchange "
+           "endpoints via Microsoft Graph API.")
+    text_with = ("Summary here. Implemented OAuth 2.0 email authentication "
+                 "against Exchange endpoints via Microsoft Graph API, plus more.")
+    text_without = "Generic resume about backend services and dashboards."
+    r1 = V.build_ats_report(None, text_with, None, distinctive_texts=[ach])
+    check(not any("distinctive" in w for w in r1["warnings"]),
+          "intact distinctive achievement -> no warning")
+    r2 = V.build_ats_report(None, text_without, None, distinctive_texts=[ach])
+    check(any("distinctive" in w for w in r2["warnings"]),
+          f"dropped distinctive achievement flagged ({r2['warnings']})")
+    r3 = V.build_ats_report(None, text_without, None)
+    check(not any("distinctive" in w for w in r3["warnings"]),
+          "no distinctive flags -> no warning")
+
+
 def main() -> int:
     test_renderer_shape()
     test_round_trip_passes()
@@ -231,6 +264,8 @@ def main() -> int:
     test_missing_credentials_or_group_fails()
     test_group_skill_dropped_fails()
     test_ats_report()
+    test_metric_cap()
+    test_distinctive_survival()
     print("\nALL VERIFY CHECKS PASSED")
     return 0
 
