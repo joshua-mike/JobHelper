@@ -50,8 +50,10 @@ python -m venv .venv
 # 2. install core deps
 pip install -r requirements.txt
 
-# 3. create your profile and (optionally) your API key
+# 3. create your local config and (optionally) your API key
 Copy-Item config\profile.example.yaml config\profile.yaml
+Copy-Item config\criteria.example.yaml config\criteria.yaml
+Copy-Item config\sources.example.yaml config\sources.yaml
 Copy-Item .env.example .env            # then edit .env to add ANTHROPIC_API_KEY
 #   ...edit config\profile.yaml with your real experience...
 #   ...tune config\criteria.yaml and config\sources.yaml...
@@ -140,8 +142,8 @@ Claude judge still does the precise scoring either way.
 | File | What it controls |
 |------|------------------|
 | `config/profile.yaml` | **Your master profile** — single source of truth, gitignored. Copy from `profile.example.yaml`. |
-| `config/criteria.yaml` | Role targeting, keywords, salary floor, remote/location, daily count, score threshold, **per-company diversity cap** (`max_per_company`), scoring mode, model choices. |
-| `config/sources.yaml` | Which aggregators are on, and your curated Greenhouse/Lever/Ashby company list. |
+| `config/criteria.yaml` | Role targeting, keywords, salary floor, remote/location, daily count, score threshold, **per-company diversity cap** (`max_per_company`), scoring mode, model choices. Gitignored — copy from `criteria.example.yaml`. |
+| `config/sources.yaml` | Which aggregators are on, and your curated Greenhouse/Lever/Ashby company list. Gitignored — copy from `sources.example.yaml`. |
 | `.env` | `ANTHROPIC_API_KEY` and optional model overrides. Gitignored. |
 
 To add a target company's ATS board, find its slug in the public board URL:

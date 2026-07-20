@@ -30,9 +30,10 @@ def load_env(root_env: Path | None = None) -> None:
 def _load_yaml(name: str) -> dict[str, Any]:
     path = CONFIG_DIR / name
     if not path.exists():
+        stem = Path(name).stem
         raise FileNotFoundError(
             f"Missing config file: {path}. "
-            f"(Did you copy profile.example.yaml -> profile.yaml?)"
+            f"(Did you copy {stem}.example.yaml -> {name}?)"
         )
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 

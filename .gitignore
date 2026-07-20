@@ -1,6 +1,9 @@
-# Secrets & local config
+# Secrets & local config (copy the .example.yaml files to get started)
 .env
 config/profile.yaml
+config/criteria.yaml
+config/sources.yaml
+
 # Machine-local Claude Code settings (local paths / per-machine permission state)
 .claude/settings.local.json
 
