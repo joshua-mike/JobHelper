@@ -202,6 +202,22 @@ def get_job(conn: sqlite3.Connection, job_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
 
 
+def previous_run_started_at(conn: sqlite3.Connection,
+                            current_run_id: str) -> str | None:
+    """started_at of the most recent COMPLETED run other than the current one.
+
+    Jobs first seen after this moment are 'fresh' for shortlist priority. A
+    crashed run is skipped (finished_at IS NULL), so its arrivals still count
+    as fresh on the next successful run.
+    """
+    row = conn.execute(
+        "SELECT started_at FROM run_log WHERE run_id != ? AND "
+        "finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1",
+        (current_run_id,),
+    ).fetchone()
+    return row[0] if row else None
+
+
 # ---- run_log -----------------------------------------------------------------
 def start_run(conn: sqlite3.Connection, run_id: str) -> None:
     conn.execute(

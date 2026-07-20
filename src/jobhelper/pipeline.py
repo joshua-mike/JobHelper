@@ -19,7 +19,7 @@ from .tailor import (build_ats_report, build_resume, cover_letter,
                      distinctive_achievements, extract_docx_text,
                      extract_keywords, screening_answers, select_variant,
                      structural_failures, tailor_resume)
-from .util import RESUME_DIR, get_logger
+from .util import RESUME_DIR, age_days, get_logger, parse_date
 
 log = get_logger()
 
@@ -55,6 +55,49 @@ def _select_diverse(cands: list, target: int, max_per_company: int) -> list:
             if r["id"] not in picked:
                 chosen.append(r)
     return chosen
+
+
+def _expire_stale(conn, criteria: dict) -> int:
+    """Expire pool jobs older than max_age_days (posted date, else first seen).
+
+    The ingest freshness filter only sees jobs on the way in; without this the
+    ranked/scored pool keeps stale postings forever, and they compete with new
+    arrivals for judge-shortlist slots long after the listings are dead.
+    """
+    max_age = criteria.get("max_age_days")
+    if not max_age:
+        return 0
+    expired = 0
+    for row in db.jobs_by_status(conn, "ranked", "scored"):
+        posted = parse_date(row["date_posted"]) or parse_date(row["first_seen_at"])
+        age = age_days(posted)
+        if age is not None and age > float(max_age):
+            db.update_job(conn, row["id"], status="expired",
+                          status_reason=f"expired: older than {max_age} days")
+            expired += 1
+    conn.commit()
+    return expired
+
+
+def _shortlist_fresh_first(unjudged: list, n: int,
+                           prev_run_started: str | None) -> list:
+    """Order unjudged jobs for the LLM judge: this cycle's arrivals first.
+
+    Embed rank alone lets a large unjudged backlog starve brand-new postings
+    out of the shortlist for days. Jobs first seen since the previous completed
+    run claim slots first (best embed first); the backlog fills what's left.
+    """
+    def embed(r):
+        return r["embed_score"] or 0
+
+    fresh, backlog = [], []
+    for r in unjudged:
+        is_fresh = (prev_run_started is None
+                    or (r["first_seen_at"] or "") >= prev_run_started)
+        (fresh if is_fresh else backlog).append(r)
+    fresh.sort(key=embed, reverse=True)
+    backlog.sort(key=embed, reverse=True)
+    return (fresh + backlog)[:n]
 
 
 def run(use_cache: bool = False) -> dict:
@@ -104,6 +147,12 @@ def run(use_cache: bool = False) -> dict:
     conn.commit()
     log.info("filtered_out=%d", counts["filtered"])
 
+    # ---- 3.5 EXPIRE stale pool jobs ----
+    expired = _expire_stale(conn, criteria)
+    if expired:
+        log.info("expired=%d (pool jobs older than %s days)",
+                 expired, criteria.get("max_age_days"))
+
     # ---- 4. SCORE (embeddings/lexical recall, then optional LLM judge) ----
     scorer = Scorer(profile_comparison_text(profile),
                     prefer=criteria.get("scoring", "auto"))
@@ -122,10 +171,9 @@ def run(use_cache: bool = False) -> dict:
     if llm_on:
         shortlist_n = int(criteria.get("llm_shortlist", 15))
         pool = db.jobs_by_status(conn, "ranked", "scored")
-        shortlist = sorted(
-            [r for r in pool if r["llm_score"] is None],
-            key=lambda r: r["embed_score"] or 0, reverse=True,
-        )[:shortlist_n]
+        unjudged = [r for r in pool if r["llm_score"] is None]
+        shortlist = _shortlist_fresh_first(
+            unjudged, shortlist_n, db.previous_run_started_at(conn, run_id))
         for row in shortlist:
             try:
                 res = judge.score(dict(row))
