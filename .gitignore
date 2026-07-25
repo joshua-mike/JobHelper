@@ -7,6 +7,10 @@ config/sources.yaml
 # Machine-local Claude Code settings (local paths / per-machine permission state)
 .claude/settings.local.json
 
+# Isolated agent-session worktrees (full copies of the source tree; safe to remove
+# with `git worktree remove` once the session that created them is done)
+.claude/worktrees/
+
 # Generated data (DB, resumes, digests, cached API responses)
 data/
 
