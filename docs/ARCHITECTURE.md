@@ -34,43 +34,49 @@ that a human starts (or Task Scheduler starts on their behalf).
 Four things can be running, and they are deliberately loosely coupled — each
 talks to the same SQLite DB rather than to each other:
 
-```mermaid
-flowchart TB
-    subgraph cfg["config/ (YAML, gitignored)"]
-        P[profile.yaml]
-        C[criteria.yaml]
-        S[sources.yaml]
-    end
+```
+  EXTERNAL FEEDS (read-only)                config/  (YAML, gitignored)
+  ──────────────────────────                ──────────────────────────────
+  Aggregators  Remotive, Arbeitnow,         profile.yaml   your master profile
+               RemoteOK                     criteria.yaml  what counts as a match
+  ATS boards   Greenhouse, Lever, Ashby,    sources.yaml   which feeds are on
+               SmartRecruiters, Workday,
+               Microsoft, Amazon
+  Keyed        Adzuna, USAJOBS
+        │                                              │
+        └──────────────────────┬───────────────────────┘
+                               ▼
+                  ┌─────────────────────────┐        ┌──────────────────────┐
+                  │      run_daily.py       │◄──────►│  Claude API          │
+                  │      THE PIPELINE       │        │  judge · keywords ·  │
+                  └────────────┬────────────┘        │  tailor · cover ltr  │
+                               │                     └──────────────────────┘
+                               ▼
+  ╔═══════════════════════════════════════════════════════════════════════╗
+  ║  data/jobhelper.db   (SQLite, WAL)                                    ║
+  ║  tables: jobs · run_log · source_suggestions                          ║
+  ║                                                                       ║
+  ║  The ONLY thing the four processes share. Nothing imports anything    ║
+  ║  else; they coordinate entirely through rows in this file.            ║
+  ╚═══════════════════════════════════════════════════════════════════════╝
+        ▲                        ▲                        ▲
+        │                        │                        │
+  ┌─────┴─────────┐     ┌────────┴────────┐     ┌─────────┴─────────┐
+  │ run_ui.py     │     │ review.py       │     │ apply.py          │
+  │ :8787         │     │ :8765           │     │ assisted apply    │
+  │               │     │                 │     │ (Playwright)      │
+  │ dashboard     │     │ legacy review   │     │                   │
+  │ review        │     │ page            │     │ fills the form,   │
+  │ settings      │     │                 │     │ then STOPS        │
+  └───────────────┘     └─────────────────┘     └───────────────────┘
+        │                        │                        ▲
+        │ spawns run_daily.py    └──── spawns ────────────┤
+        │ (child proc, streams logs)                      │
+        └─────────── spawns ──────────────────────────────┘
 
-    subgraph ext["External (read-only, keyless unless noted)"]
-        AGG[Aggregators<br/>Remotive · Arbeitnow · RemoteOK]
-        ATS[ATS boards<br/>Greenhouse · Lever · Ashby · SmartRecruiters<br/>Workday · Microsoft · Amazon]
-        KEYED[Keyed feeds<br/>Adzuna · USAJOBS]
-        API[Anthropic API<br/>judge · keywords · tailor · cover letter]
-    end
-
-    RD["run_daily.py<br/><i>the pipeline</i>"]
-    DB[("data/jobhelper.db<br/>SQLite (WAL)")]
-    UI["run_ui.py :8787<br/><i>dashboard + review + settings</i>"]
-    REV["review.py :8765<br/><i>legacy review page</i>"]
-    AP["apply.py<br/><i>assisted apply (Playwright)</i>"]
-
-    OUT["data/<br/>digests · resumes · applications_log.csv"]
-
-    cfg --> RD
-    AGG --> RD
-    ATS --> RD
-    KEYED --> RD
-    API <--> RD
-    RD --> DB
-    RD --> OUT
-    DB <--> UI
-    DB <--> REV
-    DB <--> AP
-    UI -. "spawns child process" .-> RD
-    UI -. "spawns console" .-> AP
-    REV -. "spawns console" .-> AP
-    UI --> cfg
+  run_daily.py also writes:  data/digests/digest-YYYY-MM-DD.md
+                             data/resumes/<date>/<job_id>/*.docx
+  the review actions write:  data/applications_log.csv
 ```
 
 Key structural facts:
@@ -93,55 +99,95 @@ one function, `run()`, executed top to bottom. Every stage is gated on the job
 that already happened — the pipeline is **idempotent and resumable by
 construction**.
 
-```mermaid
-flowchart TD
-    START([run_daily.py]) --> LOAD["Load .env + profile/criteria/sources<br/>open DB · migrate · start_run(run_id)"]
+```
+   run_daily.py
+        │
+        ▼
+   LOAD ───────────────────────────────────────────────────────────────────
+        .env + profile/criteria/sources · open DB · migrate · start_run(id)
+        │
+        ▼
+ 1 · SOURCE ───────────────────────────────────────────────────────────────
+        build_sources() → each adapter's .fetch() → RawJob records
+        A failing source is logged and skipped; the run continues.
+        │
+        ▼
+ 2 · DEDUPE ───────────────────────────────────────────────────────────────
+        db.insert_job(), two independent layers:
+          job_hash already seen ........ no row written at all
+          content_hash seen < 60 days .. status = duplicate  (inert; kept
+                                         only for harvester evidence)
+          otherwise .................... status = new
+        │
+        ▼  new
+ 3 · HARD FILTER ──────────────────────────────────────────────────────────
+        rank/filters.passes() — deterministic string rules from
+        criteria.yaml. Free, and runs BEFORE any embedding or Claude spend,
+        which is why it throws away the bulk of what was sourced.
+          rejected ..................... status = filtered_out + reason
+          passed ....................... status = ranked
+        │
+        ▼  ranked
+ 3.5 · EXPIRE ─────────────────────────────────────────────────────────────
+        Pool jobs past max_age_days (posted date, else first seen) retire to
+        status = expired. The stage-3 freshness rule only sees jobs on the
+        way IN; without this the pool would keep dead postings forever.
+        │
+        ▼
+   ╔═══════════════════════════════════════════════════════════════════╗
+   ║  THE POOL — every job currently 'ranked' or 'scored'              ║
+   ╚═══════════════════════════════════════════════════════════════════╝
+        │
+        ▼
+ 4a · RECALL SCORE ────────────────────────────────────────────────────────
+        rank/scoring.Scorer over the whole pool → embed_score (0.0–1.0).
+        Semantic embeddings if installed, else a lexical cosine.
+        │
+        ▼
+ 4b · SHORTLIST  +  4c · JUDGE ────────────────────────────────────────────
+        Only when ANTHROPIC_API_KEY is set — without it, skip to SELECT.
 
-    LOAD --> SRC["<b>1 · SOURCE</b><br/>build_sources() → each adapter .fetch()<br/>per-source failure is isolated"]
-    SRC --> DED{"<b>2 · DEDUPE</b><br/>insert_job()"}
-    DED -->|"job_hash seen"| DROP([no row — silently skipped])
-    DED -->|"content_hash seen<br/>within 60 days"| DUP([status = duplicate])
-    DED -->|"genuinely new"| NEW([status = new])
+        SHORTLIST  unjudged jobs only, THIS CYCLE'S ARRIVALS FIRST (best
+                   embed_score first), backlog fills the rest. Top 15.
+        JUDGE      rank/llm_judge.Judge → Claude → llm_score 0–100 plus
+                   musthaves_met / missing / rationale.
+                     judged ........... status = scored
+                     call failed ...... logged; the job stays 'ranked'
+        │
+        ▼
+ 5 · SELECT ───────────────────────────────────────────────────────────────
+        with Claude ..... llm_score >= min_score, best first
+        without ......... rank by embed_score, NO threshold (a lexical
+                          score has no absolute meaning)
+        then _select_diverse(daily_target, max_per_company):
+          pass 1 respects the per-company cap, pass 2 fills any shortfall
+          chosen ....................... status = proposed
+        │
+        ▼
+ 6 · TAILOR ───────────────────────────────────────────────────────────────
+        Per proposed job. A failure isolates to that job; the batch goes on.
 
-    NEW --> FILT{"<b>3 · HARD FILTER</b><br/>rank/filters.passes()<br/>deterministic · zero cost"}
-    FILT -->|fails| FOUT([status = filtered_out<br/>+ status_reason])
-    FILT -->|passes| RANKED([status = ranked])
-
-    RANKED --> EXP{"<b>3.5 · EXPIRE</b><br/>older than max_age_days?"}
-    EXP -->|yes| EXPIRED([status = expired])
-    EXP -->|no| POOL[["<b>the pool</b><br/>ranked + scored"]]
-
-    POOL --> RECALL["<b>4a · RECALL SCORE</b><br/>rank/scoring.Scorer<br/>semantic embeddings, else lexical cosine<br/>→ embed_score (0..1)"]
-
-    RECALL --> HASKEY{ANTHROPIC_API_KEY?}
-    HASKEY -->|no| SELECT
-    HASKEY -->|yes| SHORT["<b>4b · SHORTLIST</b><br/>unjudged jobs, <i>this cycle's arrivals first</i>,<br/>then backlog — top llm_shortlist (15)"]
-    SHORT --> JUDGE["<b>4c · JUDGE</b><br/>rank/llm_judge.Judge → Claude<br/>fit_score 0-100 + met/missing/rationale"]
-    JUDGE --> SCORED([status = scored])
-    SCORED --> SELECT
-
-    SELECT["<b>5 · SELECT</b><br/>LLM mode: llm_score ≥ min_score, best first<br/>no-LLM mode: rank by embed_score<br/>then _select_diverse(daily_target, max_per_company)"]
-    SELECT --> PROPOSED([status = proposed<br/>+ proposed_in_run_id])
-
-    PROPOSED --> TAILOR
-    subgraph TAILOR["<b>6 · TAILOR</b> — per proposed job, errors isolated"]
-        direction TB
-        T1["extract_keywords() — separate LLM call<br/><i>the checker, not the writer</i>"]
-        T2["select_variant() — pure code, role-family emphasis"]
-        T3["tailor_resume() — LLM may only reword/select profile facts"]
-        T4["build_resume() → ATS-safe single-column .docx"]
-        T5{"structural_failures()<br/>re-read the saved file"}
-        T6["build_ats_report() — coverage · frequency · metric-once · distinctive"]
-        T7["cover_letter() + screening_answers()"]
-        T1 --> T2 --> T3 --> T4 --> T5
-        T5 -->|failures| TERR([status = error])
-        T5 -->|clean| T6 --> T7
-    end
-    T7 --> TAILORED([status = tailored])
-
-    TAILORED --> DIGEST["<b>7 · DIGEST</b><br/>digest/digest.render_digest()<br/>→ data/digests/digest-YYYY-MM-DD.md"]
-    DIGEST --> FIN["finish_run(counts) → run_log"]
-    FIN --> HUMAN{{"<b>HUMAN</b> — dashboard :8787 / review :8765<br/>Approve · Mark applied · Skip · Assisted apply"}}
+          1. extract_keywords()    separate LLM call — the CHECKER
+          2. select_variant()      pure code, role-family emphasis
+          3. tailor_resume()       LLM may only reword/select profile facts
+          4. build_resume()        ATS-safe single-column .docx
+          5. structural_failures() re-read the SAVED file
+                 any failure ....... status = error + error_text
+          6. build_ats_report()    coverage · frequency · metric-once
+          7. cover_letter() + screening_answers()
+                 all clean ......... status = tailored
+        │
+        ▼
+ 7 · DIGEST ───────────────────────────────────────────────────────────────
+        render_digest() → data/digests/digest-YYYY-MM-DD.md
+        finish_run() writes this run's counters to run_log.
+        │
+        ▼
+   ┌───────────────────────────────────────────────────────────────────┐
+   │  HUMAN — dashboard :8787  or  review page :8765                   │
+   │  Approve · Mark applied · Skip · Assisted apply                   │
+   │  Nothing is ever submitted automatically.                         │
+   └───────────────────────────────────────────────────────────────────┘
 ```
 
 ### Stage reference
@@ -202,37 +248,43 @@ you the day's digest.
 `status` is the pipeline's control flow. Every stage selects by status and writes
 a new one; nothing else coordinates the stages.
 
-```mermaid
-stateDiagram-v2
-    [*] --> new: insert_job()
-    [*] --> duplicate: content_hash match (60d window)
+```
+  AT INSERT
+  ─────────
+    duplicate  ◄── content_hash matched a live row seen in the last 60 days
+    new        ◄── everything else
 
-    new --> ranked: passes filters
-    new --> filtered_out: rejected (+ status_reason)
 
-    ranked --> expired: older than max_age_days
-    scored --> expired: older than max_age_days
+  THE PIPELINE MOVES IT
+  ─────────────────────
 
-    ranked --> scored: judged by Claude
+              passes           judged          selected
+    new ──────────────► ranked ───────► scored ─────────► proposed
+     │                    │               │
+     │ rejected           │ too old       │ too old
+     ▼                    ▼               ▼
+  filtered_out         expired         expired
+  (+ status_reason)
 
-    ranked --> proposed: selected (no-LLM mode)
-    scored --> proposed: selected (llm_score ≥ min_score)
+    (in no-LLM mode the judge is skipped: ranked ──► proposed directly)
 
-    proposed --> tailored: resume built + verified
-    proposed --> error: tailor or verification failed
+                             resume built + verified
+                  proposed ────────────────────────► tailored
+                           ────────────────────────► error
+                             tailor or verify failed  (+ error_text)
 
-    tailored --> approved: human "Approve"
-    tailored --> applied: human "Mark applied"
-    tailored --> skipped: human "Skip"
-    approved --> applied: human "Mark applied"
-    approved --> skipped: human "Skip"
-    applied --> tailored: human "undo" (reset)
 
-    filtered_out --> [*]
-    duplicate --> [*]
-    expired --> [*]
-    skipped --> [*]
-    error --> [*]
+  THE HUMAN DECIDES        (dashboard :8787 or review page :8765)
+  ─────────────────
+
+                     ┌─────────────► skipped
+                     │
+    tailored ────────┼─────────────► approved ───┐
+                     │                           │
+                     └─────────────► applied ◄───┘
+
+    undo (reset):  applied ──► tailored, and applied_at is cleared too, so
+                   metrics never count a phantom application.
 ```
 
 | Status | Meaning | Set by |
