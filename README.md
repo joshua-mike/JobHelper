@@ -246,6 +246,7 @@ python tests\test_review_smoke.py    # in-process: review actions + status flow
 python tests\test_apply_matching.py  # offline: form-field matching across ATS
 python tests\test_screening.py       # offline: screening polarity + option matching
 python tests\test_applog.py          # offline: applications-log upsert/remove
+python tests\test_apply_mark_applied.py # offline: assisted-apply confirm-applied path
 python tests\test_select_diverse.py  # offline: per-company diversity cap
 python tests\test_web_smoke.py       # in-process: dashboard API + stubbed run + SSE
 python tests\test_web_review_smoke.py # in-process: review API actions on synthetic rows

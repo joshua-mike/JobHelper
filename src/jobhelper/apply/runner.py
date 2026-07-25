@@ -201,6 +201,22 @@ def _print_summary(job: dict, ats: str, data: dict, report: dict, profile: dict)
     print("=" * 64)
 
 
+def mark_applied(conn, job: dict, ats: str) -> str:
+    """Record the human's 'yes, I submitted it' confirmation. Returns the stamp.
+
+    Kept out of assisted_apply() so the path is reachable in tests without a
+    browser. The confirmation itself is NOT stored on the job row — every
+    column update_job() may write is whitelisted in db._WRITABLE, and the
+    channel is already captured as applied_via in the applications log.
+    """
+    from ..applog import record_application
+    stamp = now_iso()
+    db.update_job(conn, job["id"], status="applied", applied_at=stamp)
+    conn.commit()
+    record_application({**job, "applied_at": stamp}, f"assisted-apply ({ats})")
+    return stamp
+
+
 def pick_next() -> int | None:
     conn = db.connect()
     db.init_db(conn)
@@ -264,12 +280,7 @@ def assisted_apply(job_id: int, headless: bool = False) -> dict | None:
         except (EOFError, KeyboardInterrupt):
             ans = ""
         if ans == "y":
-            stamp = now_iso()
-            db.update_job(conn, job_id, status="applied", applied_at=stamp,
-                          submit_confirmation=f"assisted apply ({ats})")
-            conn.commit()
-            from ..applog import record_application
-            record_application({**job, "applied_at": stamp}, f"assisted-apply ({ats})")
+            mark_applied(conn, job, ats)
             print("Marked as applied and logged.")
         ctx.close()
     conn.close()
