@@ -10,6 +10,10 @@ and low-volume, because tailored applications convert ~2× better than spray-and
 pray and carry none of the account-ban / ToS risk. Nothing is ever submitted on
 your behalf — you review and click apply yourself.
 
+> 🏗️ **Working on the code?** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the
+> developer guide: process flow, status state machine, data model, module map,
+> design invariants, and extension recipes.
+
 ## What it does (Phase 0/1)
 
 ```
