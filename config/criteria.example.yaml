@@ -27,7 +27,10 @@ scoring: "auto"
 llm_shortlist: 15
 
 # A proposed job must score at least this (0-100) to make the digest.
-# Applies to the Claude score if available, else the scaled lexical score.
+# ONLY applies when ANTHROPIC_API_KEY is set, where it gates the Claude judge's
+# score. With no key there is NO threshold at all: recall scores (lexical or
+# semantic) are relative rather than absolute, so a fixed cutoff would be
+# meaningless — the pipeline just ranks the pool and takes the top daily_target.
 min_score: 55
 
 # ---- Role targeting -----------------------------------------------------------
