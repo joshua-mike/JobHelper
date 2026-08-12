@@ -23,9 +23,27 @@ log = get_logger()
 PAGE = 20           # CXS list page size
 _HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 
+# Workday's own vocabulary for the detail payload's remoteType -> ours.
+_REMOTE_TYPES = {"remote": "remote", "hybrid": "hybrid",
+                 "onsite": "onsite", "on-site": "onsite", "on site": "onsite"}
+
 
 def _host(tenant: str, dc: str) -> str:
     return f"https://{tenant}.{dc}.myworkdayjobs.com"
+
+
+def _remote_type(raw: str | None, loc: str) -> str:
+    """Prefer the structured remoteType field over sniffing the location string.
+
+    Tenants that set it can phrase the location anything they like: iHerb tags its
+    remote roles "Home Office, CA" and never writes "remote" in the description, so
+    the location sniff alone silently dropped every one of them. Most tenants omit
+    the field entirely (Leidos, ICF, GDIT, NVIDIA, Mastercard as of 2026-08), so the
+    sniff stays as the fallback."""
+    mapped = _REMOTE_TYPES.get((raw or "").strip().lower())
+    if mapped:
+        return mapped
+    return "remote" if "remote" in loc.lower() else "unknown"
 
 
 class WorkdaySource(JobSource):
@@ -87,6 +105,13 @@ class WorkdaySource(JobSource):
                         info = {}
                     try:
                         loc = post.get("locationsText") or info.get("location") or ""
+                        rtype = _remote_type(info.get("remoteType"), loc)
+                        # For a remote role the office label says nothing about where
+                        # the candidate may live — iHerb's remote reqs read "Home
+                        # Office, CA" — so the candidate-location check gets the
+                        # requisition's country instead.
+                        country = (info.get("country") or {}).get("descriptor") or ""
+                        cand = country if (rtype == "remote" and country) else loc
                         desc_html = info.get("jobDescription") or ""
                         req = (post.get("bulletFields") or [None])[0] or info.get("jobReqId")
                         jobs.append(RawJob(
@@ -96,8 +121,8 @@ class WorkdaySource(JobSource):
                             title=post.get("title") or info.get("title") or "",
                             company=company,
                             location=loc,
-                            candidate_location=loc,
-                            remote_type="remote" if "remote" in loc.lower() else "unknown",
+                            candidate_location=cand,
+                            remote_type=rtype,
                             description_raw=desc_html,
                             description_clean=html_to_text(desc_html),
                             date_posted=info.get("startDate"),

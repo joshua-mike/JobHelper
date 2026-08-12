@@ -30,7 +30,7 @@ ats:
     - "rackner"                    # .NET + DoD-cleared remote (clearance asset)
     - "isccareers"                 # Integrated Specialty Coverages — C#/.NET APIs
     - "lastpass"                   # .NET backend (security)
-    - "iherb"                      # e-commerce catalog — .NET/C#+React+SQL Server, many remote
+    # iherb left Greenhouse (board 404s as of 2026-08-12) — now under workday below.
     # —— Defense / federal (your DoD clearance is an asset) ——
     - "air"                        # Govini — defense-acquisition analytics (board token is "air", not "govini")
     - "vannevarlabs"               # defense; some roles TS/SCI
@@ -51,7 +51,7 @@ ats:
     - "affirm"                     # fintech, many Remote-US SWE
     - "remotecom"                  # fully remote-first
     - "cortex"                     # remote backend
-    - "openly"                     # insurtech remote-US backend
+    # openly left Greenhouse (board 404s as of 2026-08-12) — now under ashby below.
     # —— AI labs ——
     - "xai"                        # xAI (board token "xai"); mostly ONSITE (Palo Alto/
                                    #   Memphis) — see onsite_ok_companies in criteria.yaml
@@ -72,6 +72,7 @@ ats:
     - "second-front-systems"       # defense DevSecOps, cleared roles (moved from Lever)
     - "kin"                        # insurtech remote (Rails; stretch)
     - "curri"                      # logistics, remote-US senior SWE
+    - "openly"                     # insurtech remote-US backend (moved from Greenhouse 2026-08-12)
     - "close"                      # CRM, remote-US (Python/React)
   # SmartRecruiters: public REST per company. Items are company slugs (the segment
   # in jobs.smartrecruiters.com/<slug>). Add the companies you want; SmartRecruiters
@@ -112,6 +113,12 @@ ats:
     - { tenant: "icf",         dc: "wd5", site: "ICFExternal_Career_Site",        company: "ICF" }                 # 79, remote-friendly
     - { tenant: "parsons",     dc: "wd5", site: "Search",                         company: "Parsons" }             # 811
     - { tenant: "globalhr",    dc: "wd5", site: "REC_RTX_Ext_Gateway",            company: "RTX (Raytheon)" }      # 1463, mostly onsite
+    # —— Migrated off Greenhouse. careers.iherb.com is a self-hosted skin whose job
+    #    links all point at this tenant; note the site segment is "Careers", not the
+    #    usual "External". iHerb labels remote roles "Home Office, CA" and never says
+    #    "remote" in the description, so these only survive the remote filter because
+    #    workday.py reads the structured remoteType field.
+    - { tenant: "iherb",       dc: "wd5", site: "Careers",                        company: "iHerb" }               # 57 total, 22 tech / 24 remote
     # Probed & NOT viable on Workday (don't re-guess): ManTech + MITRE tenants
     # respond but expose 0 public listings; SAIC (own portal), L3Harris (Phenom),
     # Peraton + Maximus (iCIMS) aren't on Workday at all.

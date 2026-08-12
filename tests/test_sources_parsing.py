@@ -130,6 +130,34 @@ def test_workday():
     check(j2.remote_type == "remote", f"'USA - Remote' -> remote ({j2.remote_type})")
     check(j2.company == "X", f"company falls back to tenant.title() ({j2.company})")
 
+    print("== Workday structured remoteType beats the location string ==")
+    # iHerb tags remote roles "Home Office, CA" and never writes "remote" in the
+    # description, so the location sniff alone silently dropped all of them.
+    listing3 = {"total": 1, "jobPostings": [{
+        "title": "Sr. Software Engineer II - Catalog",
+        "externalPath": "/job/Home-Office-CA/SE_R107002",
+        "locationsText": "Home Office, CA", "bulletFields": ["R107002"]}]}
+    detail3 = {"jobPostingInfo": {
+        "jobDescription": "<p>Catalog services.</p>", "location": "Home Office, CA",
+        "remoteType": "Remote",
+        "externalUrl": "https://iherb.wd5.myworkdayjobs.com/Careers/job/Home-Office-CA/SE_R107002"}}
+    f3 = FakeFetcher({"/SE_R107002": detail3, "/jobs": listing3})
+    j3 = WorkdaySource(f3, cap=400, searches=[""], per_search=5, tenants=[
+        {"tenant": "iherb", "dc": "wd5", "site": "Careers", "company": "iHerb"}]).fetch()[0]
+    check(j3.remote_type == "remote",
+          f"remoteType 'Remote' beats 'Home Office, CA' ({j3.remote_type})")
+
+    print("== Workday remoteType 'Onsite' is recorded as onsite ==")
+    listing4 = {"total": 1, "jobPostings": [{
+        "title": "Systems Engineer", "externalPath": "/job/Chantilly-VA/SE_1",
+        "locationsText": "Chantilly, VA", "bulletFields": ["1"]}]}
+    detail4 = {"jobPostingInfo": {"jobDescription": "<p>y</p>", "location": "Chantilly, VA",
+                                  "remoteType": "Onsite", "externalUrl": "https://x/y"}}
+    f4 = FakeFetcher({"/SE_1": detail4, "/jobs": listing4})
+    j4 = WorkdaySource(f4, cap=400, searches=[""], per_search=5, tenants=[
+        {"tenant": "caci", "dc": "wd1", "site": "External"}]).fetch()[0]
+    check(j4.remote_type == "onsite", f"remoteType 'Onsite' -> onsite ({j4.remote_type})")
+
 
 def test_amazon():
     print("== Amazon search.json adapter ==")
