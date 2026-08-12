@@ -24,14 +24,17 @@ _RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 class Fetcher:
-    """Shared HTTP client with per-host throttling and retry/backoff."""
+    """Shared HTTP client with per-host throttling, retry/backoff and a breaker."""
 
     def __init__(self, delay: float = 1.0, timeout: float = 30.0,
-                 use_cache: bool = False, max_retries: int = 3) -> None:
+                 use_cache: bool = False, max_retries: int = 3,
+                 host_fail_limit: int = 3) -> None:
         self.delay = delay
         self.use_cache = use_cache
         self.max_retries = max_retries
+        self.host_fail_limit = host_fail_limit
         self._last: dict[str, float] = {}
+        self._fails: dict[str, int] = {}
         self._client = httpx.Client(
             timeout=timeout,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
@@ -40,6 +43,19 @@ class Fetcher:
 
     def close(self) -> None:
         self._client.close()
+
+    def _host_is_down(self, host: str) -> bool:
+        return self._fails.get(host, 0) >= self.host_fail_limit
+
+    def _record(self, host: str, ok: bool) -> None:
+        """Track consecutive give-ups per host so one dead tenant can't eat the run."""
+        if ok:
+            self._fails[host] = 0
+            return
+        self._fails[host] = self._fails.get(host, 0) + 1
+        if self._fails[host] == self.host_fail_limit:
+            log.warning("%s: %d consecutive failures, skipping this host for the "
+                        "rest of the run", host, self.host_fail_limit)
 
     def _throttle(self, url: str) -> None:
         host = urlsplit(url).netloc
@@ -70,15 +86,28 @@ class Fetcher:
             log.debug("cache hit %s", url)
             return json.loads(cache.read_text(encoding="utf-8"))
 
+        host = urlsplit(url).netloc
+        if self._host_is_down(host):
+            raise RuntimeError(f"{host} marked down this run, skipped: {url}")
+
         last_err: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             self._throttle(url)
+            # Workday/Cloudflare pin a client to one backend instance via __cflb +
+            # wday_vps_cookie/PLAY_SESSION. Replaying those sends every retry back to
+            # the same (possibly sick) instance, so a transient backend failure looks
+            # like a total outage. Every source here is keyless, so drop the jar each
+            # attempt and let the load balancer route us somewhere healthy.
+            self._client.cookies.clear()
             try:
                 if method == "POST":
                     resp = self._client.post(url, json=json_body, headers=headers)
                 else:
                     resp = self._client.get(url, params=params, headers=headers)
                 if resp.status_code in _RETRY_STATUS:
+                    last_err = RuntimeError(f"HTTP {resp.status_code}")
+                    if attempt == self.max_retries:
+                        break
                     wait = _retry_after(resp, attempt)
                     log.warning("%s -> HTTP %s, retry %d/%d in %.1fs", url,
                                 resp.status_code, attempt, self.max_retries, wait)
@@ -92,15 +121,19 @@ class Fetcher:
                     cache.write_text(json.dumps(data), encoding="utf-8")
                 except Exception:
                     pass
+                self._record(host, True)
                 return data
             except (httpx.HTTPError, json.JSONDecodeError) as exc:
                 last_err = exc
+                if attempt == self.max_retries:
+                    break
                 wait = 2 ** (attempt - 1)
                 log.warning("%s -> %s, retry %d/%d in %.0fs", url, exc,
                             attempt, self.max_retries, wait)
                 time.sleep(wait)
-        raise RuntimeError(f"{method} failed after {self.max_retries} tries: {url}") \
-            from last_err
+        self._record(host, False)
+        raise RuntimeError(f"{method} failed after {self.max_retries} tries: "
+                           f"{url} ({last_err})") from last_err
 
 
 def _retry_after(resp: httpx.Response, attempt: int) -> float:
