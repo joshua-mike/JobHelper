@@ -82,6 +82,7 @@ class ReviewJob(BaseModel):
     url: str | None
     source: str
     status: str
+    status_reason: str | None = None
     llm_score: int | None = None
     display_score: int
     llm_rationale: str | None = None
@@ -107,6 +108,7 @@ class ReviewLists(BaseModel):
     pending: list[ReviewJob]
     applied: list[ReviewJob]
     skipped: list[ReviewJob]
+    parked: list[ReviewJob] = []  # direct-hire gate (ITEM-26), newest first
 
 
 class ReviewActionRequest(BaseModel):
@@ -116,6 +118,12 @@ class ReviewActionRequest(BaseModel):
 class ReviewActionResult(BaseModel):
     ok: bool
     job: ReviewJob
+
+
+class NotStaffingResult(BaseModel):
+    company: str
+    restored: int              # parked jobs of this company returned to the pool
+    allow_list_changed: bool   # False when the company was already allow-listed
 
 
 class RunStatus(BaseModel):

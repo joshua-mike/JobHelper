@@ -10,15 +10,17 @@ from pathlib import Path
 from typing import Any
 
 from .. import db
+from ..rank import staffing
 from ..review.actions import PENDING, apply_action, enrich
 from ..review.actions import launch_assisted_apply as launch_assist
+from . import settings_store
 
 # What the frontend sees. Raw descriptions stay out of the payload — the board
 # shows the LLM rationale/chips, with a link out to the posting itself.
 _FIELDS = (
     "id", "title", "company", "location", "candidate_location", "remote_type",
     "salary_min", "salary_max", "salary_currency", "url", "source", "status",
-    "llm_score", "llm_rationale", "cover_letter_text", "date_posted",
+    "status_reason", "llm_score", "llm_rationale", "cover_letter_text", "date_posted",
     "first_seen_at", "proposed_in_run_id", "approved_at", "applied_at",
     "updated_at",
     # added by enrich():
@@ -46,9 +48,13 @@ def review_lists() -> dict[str, list[dict[str, Any]]]:
         skipped = [_serialize(r) for r in conn.execute(
             "SELECT * FROM jobs WHERE status='skipped' "
             "ORDER BY updated_at DESC LIMIT 50")]
+        parked = [_serialize(r) for r in conn.execute(
+            "SELECT * FROM jobs WHERE status=? ORDER BY first_seen_at DESC, id DESC "
+            "LIMIT 50", (staffing.PARKED,))]
     finally:
         conn.close()
-    return {"pending": pending, "applied": applied, "skipped": skipped}
+    return {"pending": pending, "applied": applied, "skipped": skipped,
+            "parked": parked}
 
 
 def act(job_id: int, action: str) -> dict[str, Any] | None:
@@ -62,6 +68,34 @@ def act(job_id: int, action: str) -> dict[str, Any] | None:
         return _serialize(db.get_job(conn, job_id))
     finally:
         conn.close()
+
+
+def not_staffing(job_id: int) -> dict[str, Any] | None:
+    """Rescue a direct-hire gate false positive; None if no such job.
+
+    Adds the job's company to criteria.yaml `direct_employers_allow` (comment-
+    preserving store, so the Settings page sees it) and returns every parked
+    job of that company to the pool right away.
+    """
+    conn = db.connect()
+    try:
+        row = db.get_job(conn, job_id)
+        if row is None:
+            return None
+        company = (row["company"] or "").strip()
+        criteria = settings_store.load_data("criteria") or {}
+        allow = [str(c) for c in (criteria.get("direct_employers_allow") or [])]
+        changed = False
+        if company and staffing.normalize_company(company) not in {
+                staffing.normalize_company(c) for c in allow}:
+            _, changed = settings_store.save(
+                "criteria", {"direct_employers_allow": [*allow, company]})
+        restored = staffing.restore_company(conn, company)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"company": company, "restored": restored,
+            "allow_list_changed": changed}
 
 
 def resume_path(job_id: int) -> Path | None:

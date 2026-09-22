@@ -2,12 +2,15 @@
 
 Inserts synthetic jobs (source '_uitest') into the DB, exercises the full
 /api/review/* surface — lists + enrichment, every action incl. applications-log
-sync, resume download, assisted-apply launch (monkeypatched) — then deletes
-them. Real jobs are never touched. Run:  python tests/test_web_review_smoke.py
+sync, resume download, assisted-apply launch (monkeypatched), the direct-hire
+gate's parked list + "Not staffing" rescue (config writes go to a temp copy of
+criteria.yaml) — then deletes them. Real jobs are never touched.
+Run:  python tests/test_web_review_smoke.py
 """
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -21,6 +24,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from jobhelper import applog  # noqa: E402
 from jobhelper.util import DB_PATH, now_iso  # noqa: E402
 from jobhelper.web import review as webreview  # noqa: E402
+from jobhelper.web import settings_store  # noqa: E402
 from jobhelper.web.app import app  # noqa: E402
 
 
@@ -84,8 +88,25 @@ def main() -> int:
     # No llm_score -> display_score falls back to embed*100; sorts after jid.
     jid2 = _insert(conn, title="Data Engineer", company="Beta", status="proposed",
                    url="https://remoteok.com/jobs/999", embed_score=0.634)
+    # Parked by the direct-hire gate: two name variants of one company.
+    jid3 = _insert(conn, title="Senior .NET Developer", company="_uitest Staffing Co",
+                   status="staffing", status_reason="staffing: W2/C2C terms")
+    jid4 = _insert(conn, title="Backend Engineer", company="_UITEST STAFFING CO, LLC",
+                   status="staffing", status_reason="staffing: known staffing firm",
+                   llm_score=70)
     conn.commit()
     conn.close()
+
+    # "Not staffing" writes criteria.yaml (and a backup) — point the store at a
+    # temp copy so the real config and data/backups are never touched.
+    real_config_dir = settings_store.CONFIG_DIR
+    cfg_dir = Path(tempfile.mkdtemp(prefix="_uitest-cfg-"))
+    src = real_config_dir / "criteria.yaml"
+    shutil.copy(src if src.exists() else real_config_dir / "criteria.example.yaml",
+                cfg_dir / "criteria.yaml")
+    settings_store.CONFIG_DIR = cfg_dir
+    real_backup_dir = settings_store.BACKUP_DIR
+    settings_store.BACKUP_DIR = cfg_dir / "backups"
 
     real_launch = webreview.launch_assist
     assist_calls: list[int] = []
@@ -186,9 +207,36 @@ def main() -> int:
             check(r.status_code == 409, "assist on non-ATS job -> 409")
             r = client.post("/api/review/jobs/987654321/assist")
             check(r.status_code == 404, "assist on missing job -> 404")
+
+            print("== direct-hire gate: parked list + not-staffing ==")
+            data = client.get("/api/review/jobs").json()
+            p3 = _find(data, "parked", jid3)
+            check(p3 is not None and _find(data, "parked", jid4) is not None,
+                  "both parked jobs listed under parked")
+            check(p3 is not None and p3["status_reason"] == "staffing: W2/C2C terms",
+                  "parked job carries its status_reason")
+            r = client.post(f"/api/review/jobs/{jid3}/not-staffing")
+            check(r.status_code == 200, f"POST not-staffing -> 200 (got {r.status_code})")
+            res = r.json()
+            check(res["company"] == "_uitest Staffing Co" and res["restored"] == 2
+                  and res["allow_list_changed"] is True,
+                  f"allow-lists the company, restores both variants: {res}")
+            check(_db_row(jid3)["status"] == "ranked" and _db_row(jid4)["status"] == "scored",
+                  "restored to ranked / scored (had llm_score)")
+            allow = settings_store.load_data("criteria").get("direct_employers_allow")
+            check(allow is not None and "_uitest Staffing Co" in allow,
+                  "company appended to direct_employers_allow in criteria.yaml")
+            r = client.post(f"/api/review/jobs/{jid4}/not-staffing")
+            check(r.status_code == 200 and r.json()["allow_list_changed"] is False,
+                  "second rescue of the same company is a no-op on config")
+            r = client.post("/api/review/jobs/987654321/not-staffing")
+            check(r.status_code == 404, "not-staffing on missing job -> 404")
         ok = True
     finally:
         webreview.launch_assist = real_launch
+        settings_store.CONFIG_DIR = real_config_dir
+        settings_store.BACKUP_DIR = real_backup_dir
+        shutil.rmtree(cfg_dir, ignore_errors=True)
         applog.remove_application(jid)  # safety if a FAIL aborted mid-applied
         c = sqlite3.connect(DB_PATH)
         c.execute("DELETE FROM jobs WHERE source='_uitest'")

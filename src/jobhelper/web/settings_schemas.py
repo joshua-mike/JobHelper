@@ -162,6 +162,9 @@ class CriteriaConfig(_Permissive):
     remote_required: bool | None = None
     onsite_ok_companies: list[str] | None = None
     allowed_location_tokens: list[str] | None = None
+    direct_hire_only: bool | None = None
+    direct_employers_allow: list[str] | None = None
+    staffing_companies: list[str] | None = None
     salary_floor: int | None = Field(None, ge=0)
     exclude_companies: list[str] | None = None
     max_age_days: int | None = Field(None, ge=1, le=365)

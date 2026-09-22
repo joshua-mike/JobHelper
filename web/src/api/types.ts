@@ -94,6 +94,7 @@ export interface ReviewJob {
   url: string | null
   source: string
   status: string
+  status_reason: string | null
   llm_score: number | null
   display_score: number
   llm_rationale: string | null
@@ -119,11 +120,19 @@ export interface ReviewLists {
   pending: ReviewJob[]
   applied: ReviewJob[]
   skipped: ReviewJob[]
+  /** Parked by the direct-hire gate (ITEM-26), newest first. */
+  parked: ReviewJob[]
 }
 
 export interface ReviewActionResult {
   ok: boolean
   job: ReviewJob
+}
+
+export interface NotStaffingResult {
+  company: string
+  restored: number
+  allow_list_changed: boolean
 }
 
 export interface RunStatus {
@@ -173,6 +182,9 @@ export interface CriteriaData {
   remote_required?: boolean
   onsite_ok_companies?: string[]
   allowed_location_tokens?: string[]
+  direct_hire_only?: boolean
+  direct_employers_allow?: string[]
+  staffing_companies?: string[]
   salary_floor?: number
   exclude_companies?: string[]
   max_age_days?: number

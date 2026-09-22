@@ -101,6 +101,23 @@ allowed_location_tokens:
   - "Worldwide"
   - "Remote"
 
+# ---- Employment type ----------------------------------------------------------
+# Direct hire only: park postings from staffing agencies / recruiters (including
+# permanent placements they broker) and fixed-term or 1099 contract roles, so
+# they never reach the judge or the digest. Parked jobs wait in a 'staffing'
+# status and return to the pool on the next run if you switch this off. Only
+# the open-market aggregators (Adzuna, Remotive, RemoteOK, Arbeitnow) are
+# screened — the per-company boards in sources.yaml are trusted.
+direct_hire_only: false
+
+# Never treat these companies as staffing (rescues a false positive — the review
+# page's "Not staffing" button adds to this list). Case/punctuation-insensitive.
+direct_employers_allow: []
+
+# Always treat these companies as staffing, on any source (extends the built-in
+# list of known agencies). Case/punctuation-insensitive.
+staffing_companies: []
+
 # ---- Compensation -------------------------------------------------------------
 # If a job lists a salary and its max is below this, reject. Jobs with no listed
 # salary are KEPT (most don't list one). Set to 0 to disable.

@@ -26,8 +26,23 @@ SCHEMA: dict[str, Any] = {
                     "description": "Important requirements the candidate lacks."},
         "rationale": {"type": "string",
                       "description": "One or two sentences explaining the score."},
+        # Not part of the fit score — feeds the direct_hire_only gate (ITEM-26).
+        "employer_type": {
+            "type": "string",
+            "enum": ["direct", "staffing", "contract", "unclear"],
+            "description": (
+                "Who is hiring, and on what terms. 'direct' = the employer "
+                "itself hiring a permanent employee (a government contractor "
+                "hiring its own permanent staff to work on a government "
+                "contract is 'direct'). 'staffing' = a staffing agency, "
+                "recruiter, or consultancy placing the candidate with a client, "
+                "including permanent placements it brokers. 'contract' = a "
+                "fixed-term, 1099, or contract engagement with the employer "
+                "itself. 'unclear' = the posting doesn't say enough."),
+        },
     },
-    "required": ["fit_score", "musthaves_met", "missing", "rationale"],
+    "required": ["fit_score", "musthaves_met", "missing", "rationale",
+                 "employer_type"],
 }
 
 

@@ -4,6 +4,7 @@ import type {
   FunnelEntry,
   RecentJob,
   ResumeImportResult,
+  NotStaffingResult,
   ReviewAction,
   ReviewActionResult,
   ReviewLists,
@@ -83,6 +84,12 @@ export const api = {
     })
     if (!res.ok) throw new Error(`Review action failed (HTTP ${res.status})`)
     return res.json() as Promise<ReviewActionResult>
+  },
+
+  notStaffing: async (id: number): Promise<NotStaffingResult> => {
+    const res = await fetch(`/api/review/jobs/${id}/not-staffing`, { method: 'POST' })
+    if (!res.ok) throw new Error(`Could not restore this job (HTTP ${res.status})`)
+    return res.json() as Promise<NotStaffingResult>
   },
 
   assistApply: async (id: number): Promise<void> => {

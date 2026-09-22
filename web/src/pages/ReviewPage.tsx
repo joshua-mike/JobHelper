@@ -1,8 +1,9 @@
 import { Download } from 'lucide-react'
 import { api } from '../api/client'
-import { useFunnel, useReviewAction, useReviewJobs } from '../api/hooks'
-import type { ReviewAction } from '../api/types'
+import { useFunnel, useNotStaffing, useReviewAction, useReviewJobs } from '../api/hooks'
+import type { ReviewAction, ReviewJob } from '../api/types'
 import { DoneList } from '../components/review/DoneList'
+import { ParkedList } from '../components/review/ParkedList'
 import { ReviewJobCard } from '../components/review/ReviewJobCard'
 import { Card } from '../components/ui/card'
 import { useToast } from '../components/ui/toast'
@@ -18,11 +19,13 @@ export default function ReviewPage() {
   const { data, isError } = useReviewJobs()
   const funnel = useFunnel()
   const act = useReviewAction()
+  const rescue = useNotStaffing()
   const toast = useToast()
 
   const pending = data?.pending ?? []
   const applied = data?.applied ?? []
   const skipped = data?.skipped ?? []
+  const parked = data?.parked ?? []
 
   const counts = Object.fromEntries((funnel.data ?? []).map((f) => [f.status, f.count]))
   const backlog = (counts.new ?? 0) + (counts.ranked ?? 0) + (counts.scored ?? 0)
@@ -38,6 +41,17 @@ export default function ReviewPage() {
     )
   }
 
+  const onNotStaffing = (job: ReviewJob) => {
+    rescue.mutate(job.id, {
+      onSuccess: (res) =>
+        toast(
+          'success',
+          `${res.company} allow-listed — ${res.restored} job${res.restored === 1 ? '' : 's'} back in the pool.`,
+        ),
+      onError: (e) => toast('error', e.message),
+    })
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -47,7 +61,8 @@ export default function ReviewPage() {
             <span className="font-semibold text-slate-300">{pending.length}</span> to review ·{' '}
             <span className="font-semibold text-slate-300">{counts.applied ?? 0}</span> applied ·{' '}
             <span className="font-semibold text-slate-300">{counts.skipped ?? 0}</span> skipped ·{' '}
-            {counts.filtered_out ?? 0} filtered · {backlog} in backlog
+            {counts.filtered_out ?? 0} filtered · {counts.staffing ?? 0} staffing parked ·{' '}
+            {backlog} in backlog
           </p>
         </div>
         {(counts.applied ?? 0) > 0 && (
@@ -91,6 +106,17 @@ export default function ReviewPage() {
       {skipped.length > 0 && (
         <Card title={`Skipped (${skipped.length})`}>
           <DoneList jobs={skipped} mode="skipped" onAction={onAction} busy={act.isPending} />
+        </Card>
+      )}
+
+      {parked.length > 0 && (
+        <Card title={`Parked as staffing (${counts.staffing ?? parked.length})`}>
+          <ParkedList
+            jobs={parked}
+            total={counts.staffing ?? parked.length}
+            onNotStaffing={onNotStaffing}
+            busy={rescue.isPending}
+          />
         </Card>
       )}
 

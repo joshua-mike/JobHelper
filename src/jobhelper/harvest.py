@@ -137,7 +137,9 @@ def gather_evidence(conn: sqlite3.Connection, criteria: dict[str, Any],
     for r in rows:
         # Unassessed, rejected, and content-dup rows carry no signal — for
         # duplicates, the canonical row already counts the posting once.
-        if (r["status"] or "") in ("new", "filtered_out", "error", "duplicate"):
+        # Parked staffing jobs would suggest the agency's own board.
+        if (r["status"] or "") in ("new", "filtered_out", "error", "duplicate",
+                                   "staffing"):
             continue
         seen_at = parse_date(r["first_seen_at"])
         if seen_at is not None and seen_at < cutoff:

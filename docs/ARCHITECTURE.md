@@ -128,6 +128,15 @@ construction**.
           passed ....................... status = ranked
         │
         ▼  ranked
+ 3.2 · DIRECT-HIRE GATE ───────────────────────────────────────────────────
+        rank/staffing.apply_gate() — criteria `direct_hire_only`. Aggregator
+        jobs that look like staffing-agency or contract postings (W2/C2C,
+        "our client", known agencies, sticky company memory) are PARKED:
+          looks third-party ............ status = staffing + reason
+        Switched off, every parked job returns to the pool. Runs before
+        embedding, so parked jobs cost no embed time or judge slots.
+        │
+        ▼
  3.5 · EXPIRE ─────────────────────────────────────────────────────────────
         Pool jobs past max_age_days (posted date, else first seen) retire to
         status = expired. The stage-3 freshness rule only sees jobs on the
@@ -150,9 +159,11 @@ construction**.
         SHORTLIST  unjudged jobs only, THIS CYCLE'S ARRIVALS FIRST (best
                    embed_score first), backlog fills the rest. Top 15.
         JUDGE      rank/llm_judge.Judge → Claude → llm_score 0–100 plus
-                   musthaves_met / missing / rationale.
+                   musthaves_met / missing / rationale / employer_type.
                      judged ........... status = scored
                      call failed ...... logged; the job stays 'ranked'
+                   With direct_hire_only on, the gate re-runs so a judge
+                   'staffing'/'contract' verdict parks the job before SELECT.
         │
         ▼
  5 · SELECT ───────────────────────────────────────────────────────────────
@@ -197,6 +208,7 @@ construction**.
 | 1 | **Source** | `sources/registry.build_sources` + one adapter per feed | — → `new` / `duplicate` | HTTP, throttled | `sources.yaml` |
 | 2 | **Dedupe** | `db.insert_job` | (at insert) | free | `CONTENT_DUP_WINDOW_DAYS = 60` (code) |
 | 3 | **Hard filter** | `rank/filters.passes` | `new` → `ranked` / `filtered_out` | free | `criteria.yaml` |
+| 3.2 | **Direct-hire gate** | `rank/staffing.apply_gate` | `ranked`/`scored` ⇄ `staffing` | free (~2 s) | `direct_hire_only`, `direct_employers_allow`, `staffing_companies` |
 | 3.5 | **Expire** | `pipeline._expire_stale` | `ranked`/`scored` → `expired` | free | `max_age_days` |
 | 4a | **Recall score** | `rank/scoring.Scorer` | (writes `embed_score`) | CPU (local model) | `scoring` |
 | 4b | **Shortlist** | `pipeline._shortlist_fresh_first` | (ordering only) | free | `llm_shortlist` |
@@ -205,7 +217,7 @@ construction**.
 | 6 | **Tailor** | `tailor/*` | `proposed` → `tailored` / `error` | 3 Claude calls/job | `tailor_model` |
 | 7 | **Digest** | `digest/digest.render_digest` | (read-only) | free | — |
 
-### The five decisions worth understanding
+### The six decisions worth understanding
 
 **Why the filter runs before any scoring.** Stage 3 is pure string matching over
 config lists. It throws away the overwhelming majority of sourced jobs at zero
@@ -228,6 +240,16 @@ originally ordered by `embed_score` alone — a large unjudged backlog could sta
 brand-new postings out of the judge queue for days. `_shortlist_fresh_first`
 splits on `first_seen_at >= previous completed run's started_at`: this cycle's
 arrivals claim slots first, the backlog fills what's left.
+
+**Why staffing jobs are parked, not filtered.** No source says whether a poster is
+an agency (Adzuna's `contract_type` is filled on ~5% of ads), so `rank/staffing`
+is a weighted heuristic: ~98–99% precision, ~75% recall on a held-out sample of
+hand-labelled Adzuna companies (2026-09-22). Its weak spot is federal
+contractors, who share the vocabulary ("Client: Department of Veterans Affairs").
+So the gate is reversible by construction: it only screens the open-market
+aggregators (curated boards are trusted), parks rather than rejects,
+re-evaluates the parked set every run, and `direct_employers_allow` — fed by the
+review page's **Not staffing** button — always wins.
 
 **Why the keyword table is a separate LLM call.** `extract_keywords()` distills
 the JD into a ranked term table; `tailor_resume()` then writes against it; and
@@ -266,6 +288,12 @@ a new one; nothing else coordinates the stages.
   filtered_out         expired         expired
   (+ status_reason)
 
+                      looks like staffing / contract (direct_hire_only on)
+    ranked / scored ─────────────────────────────────────────► staffing
+                    ◄───────────────────────────────────────── (+ status_reason)
+                      switch off, or company allow-listed
+                      (back to 'scored' if it has an llm_score, else 'ranked')
+
     (in no-LLM mode the judge is skipped: ranked ──► proposed directly)
 
                              resume built + verified
@@ -293,6 +321,7 @@ a new one; nothing else coordinates the stages.
 | `duplicate` | Same content as a live row seen in the last 60 days; kept for harvester evidence + source metrics, but no stage ever selects it | `db.insert_job` |
 | `filtered_out` | Failed a deterministic rule; `status_reason` says which | stage 3 |
 | `ranked` | In the pool, awaiting/past recall scoring | stage 3 |
+| `staffing` | Parked by the direct-hire gate (agency / contract posting); `status_reason` says why. Reversible — returns to `ranked`/`scored` when the switch is off or the company is allow-listed | stage 3.2 |
 | `expired` | Aged out of the pool | stage 3.5 |
 | `scored` | Judged by Claude | stage 4c |
 | `proposed` | Selected for today | stage 5 |
@@ -319,7 +348,7 @@ block too**).
 |-------|---------|
 | Identity | `id`, `job_hash` (UNIQUE), `content_hash`, `source`, `source_job_id`, `url` |
 | Posting | `title`, `company`, `location`, `remote_type`, `salary_min/max/currency`, `candidate_location`, `description_raw`, `description_clean`, `tags`, `date_posted`, `first_seen_at` |
-| Scoring | `embed_score` (REAL 0..1), `llm_score` (INT 0..100), `llm_musthaves_met`, `llm_missing`, `llm_rationale` |
+| Scoring | `embed_score` (REAL 0..1), `llm_score` (INT 0..100), `llm_musthaves_met`, `llm_missing`, `llm_rationale`, `employer_type` (judge: direct/staffing/contract/unclear) |
 | Artifacts | `tailored_resume_path`, `cover_letter_text`, `change_log`, `screening_answers`, `ats_report` |
 | State | `status`, `status_reason`, `proposed_in_run_id`, `approved_at`, `applied_at`, `error_text`, `created_at`, `updated_at` |
 
@@ -401,6 +430,7 @@ src/jobhelper/
 │
 ├── rank/
 │   ├── filters.py          passes() — the deterministic hard filter
+│   ├── staffing.py         direct-hire gate — staffing/contract classifier + park/restore
 │   ├── scoring.py          Scorer — semantic (granite-small-r2) or lexical
 │   └── llm_judge.py        Judge — Claude fit score + met/missing/rationale
 │

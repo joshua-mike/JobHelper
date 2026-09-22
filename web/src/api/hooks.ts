@@ -73,6 +73,19 @@ export function useReviewAction() {
   })
 }
 
+/** Direct-hire gate false positive: allow-list the company and restore its
+ *  parked jobs. Also refreshes criteria, since the allow list lives there. */
+export function useNotStaffing() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.notStaffing(id),
+    onSuccess: () => {
+      for (const key of METRIC_KEYS) void qc.invalidateQueries({ queryKey: [key] })
+      void qc.invalidateQueries({ queryKey: ['config', 'criteria'] })
+    },
+  })
+}
+
 /** Refresh every metric query — called when a run completes. */
 export function useInvalidateMetrics() {
   const qc = useQueryClient()

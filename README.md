@@ -17,7 +17,7 @@ your behalf — you review and click apply yourself.
 ## What it does (Phase 0/1)
 
 ```
-SOURCE → DEDUPE → HARD FILTER → SCORE → SELECT → TAILOR → DAILY DIGEST
+SOURCE → DEDUPE → HARD FILTER → DIRECT-HIRE GATE → SCORE → SELECT → TAILOR → DAILY DIGEST
 ```
 
 - **Sources** (all keyless, remote-focused): Remotive, Arbeitnow, RemoteOK, plus
@@ -25,6 +25,9 @@ SOURCE → DEDUPE → HARD FILTER → SCORE → SELECT → TAILOR → DAILY DIGE
 - **Dedupe**: a `UNIQUE(job_hash)` constraint means a job is never processed twice.
 - **Hard filter**: cheap, deterministic rules (remote, title, keywords, salary,
   location, freshness) from `config/criteria.yaml` — runs before any AI spend.
+- **Direct-hire gate** (optional, `direct_hire_only`): parks staffing-agency and
+  contract postings from the aggregators; reversible, with a "Not staffing" rescue
+  on the review page.
 - **Score**: profile-vs-JD similarity. Semantic if `sentence-transformers` is
   installed, otherwise a built-in lexical scorer.
 - **Judge** *(optional, needs `ANTHROPIC_API_KEY`)*: Claude scores the shortlist

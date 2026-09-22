@@ -1,4 +1,5 @@
-"""The daily pipeline: source -> dedupe -> filter -> score -> select -> tailor -> digest.
+"""The daily pipeline: source -> dedupe -> filter -> direct-hire gate -> score ->
+select -> tailor -> digest.
 
 Each stage is gated on the status state machine and safe to re-run. Per-job errors
 are isolated (the row is marked 'error' and the batch continues).
@@ -13,7 +14,7 @@ from .config import (has_anthropic, load_criteria, load_env, load_profile,
                      load_sources, profile_comparison_text)
 from .digest import render_digest
 from .llm import LLM
-from .rank import Judge, Scorer, passes
+from .rank import Judge, Scorer, passes, staffing
 from .sources import build_sources
 from .tailor import (build_ats_report, build_resume, cover_letter,
                      distinctive_achievements, extract_docx_text,
@@ -147,6 +148,13 @@ def run(use_cache: bool = False) -> dict:
     conn.commit()
     log.info("filtered_out=%d", counts["filtered"])
 
+    # ---- 3.2 DIRECT-HIRE GATE: park (or, switched off, restore) staffing jobs --
+    # Before embedding, so parked jobs cost no embed time or judge slots.
+    parked, restored = staffing.apply_gate(conn, criteria)
+    if parked or restored:
+        log.info("direct-hire gate: parked=%d restored=%d (direct_hire_only=%s)",
+                 parked, restored, bool(criteria.get("direct_hire_only")))
+
     # ---- 3.5 EXPIRE stale pool jobs ----
     expired = _expire_stale(conn, criteria)
     if expired:
@@ -188,8 +196,16 @@ def run(use_cache: bool = False) -> dict:
                     llm_musthaves_met=res.get("musthaves_met", []),
                     llm_missing=res.get("missing", []),
                     llm_rationale=res.get("rationale", ""),
+                    employer_type=res.get("employer_type"),
                 )
         conn.commit()
+        # The judge's employer_type verdict can park a job the text rules
+        # missed — before selection sees it.
+        if criteria.get("direct_hire_only"):
+            parked, _ = staffing.apply_gate(conn, criteria)
+            if parked:
+                log.info("direct-hire gate: judge verdicts parked %d more",
+                         parked)
 
     # ---- 5. SELECT today's proposals ----
     target = int(criteria.get("daily_target", 4))

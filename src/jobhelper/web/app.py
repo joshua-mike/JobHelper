@@ -138,6 +138,16 @@ def review_action(job_id: int, req: schemas.ReviewActionRequest):
     return {"ok": True, "job": job}
 
 
+@app.post("/api/review/jobs/{job_id}/not-staffing",
+          response_model=schemas.NotStaffingResult)
+def review_not_staffing(job_id: int):
+    """Direct-hire gate false positive: allow-list the company, restore its jobs."""
+    res = webreview.not_staffing(job_id)
+    if res is None:
+        raise HTTPException(HTTP_404_NOT_FOUND, f"No job with id {job_id}.")
+    return res
+
+
 @app.get("/api/review/jobs/{job_id}/resume")
 def review_resume(job_id: int) -> FileResponse:
     path = webreview.resume_path(job_id)

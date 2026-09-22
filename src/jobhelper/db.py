@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     llm_musthaves_met   TEXT,           -- JSON
     llm_missing         TEXT,           -- JSON
     llm_rationale       TEXT,
+    employer_type       TEXT,           -- judge: direct|staffing|contract|unclear
     tailored_resume_path TEXT,
     cover_letter_text   TEXT,
     change_log          TEXT,           -- JSON
@@ -87,10 +88,10 @@ _WRITABLE = {
     "url", "title", "company", "location", "remote_type", "salary_min",
     "salary_max", "salary_currency", "candidate_location", "description_raw",
     "description_clean", "tags", "date_posted", "embed_score", "llm_score",
-    "llm_musthaves_met", "llm_missing", "llm_rationale", "tailored_resume_path",
-    "cover_letter_text", "change_log", "screening_answers", "ats_report", "status",
-    "status_reason", "proposed_in_run_id", "approved_at", "applied_at",
-    "error_text",
+    "llm_musthaves_met", "llm_missing", "llm_rationale", "employer_type",
+    "tailored_resume_path", "cover_letter_text", "change_log", "screening_answers",
+    "ats_report", "status", "status_reason", "proposed_in_run_id", "approved_at",
+    "applied_at", "error_text",
 }
 
 
@@ -109,6 +110,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
     if "ats_report" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN ats_report TEXT")
+    if "employer_type" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN employer_type TEXT")
     if "content_hash" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN content_hash TEXT")
         # Backfill so pre-existing rows participate in content dedup. Rows too

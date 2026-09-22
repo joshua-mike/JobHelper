@@ -4,6 +4,7 @@ const LABELS: Record<string, string> = {
   new: 'New (unprocessed)',
   duplicate: 'Duplicates',
   filtered_out: 'Filtered out',
+  staffing: 'Staffing (parked)',
   ranked: 'Ranked',
   scored: 'Scored',
   expired: 'Expired (aged out)',
@@ -21,6 +22,7 @@ const COLORS: Record<string, string> = {
   error: 'bg-rose-500/70',
   duplicate: 'bg-slate-600/70',
   filtered_out: 'bg-slate-600/70',
+  staffing: 'bg-slate-600/70',
   expired: 'bg-slate-600/70',
   skipped: 'bg-slate-600/70',
 }

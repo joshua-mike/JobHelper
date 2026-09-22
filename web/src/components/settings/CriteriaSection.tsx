@@ -52,7 +52,16 @@ export function CriteriaSection() {
   const listCard = (
     title: string,
     hint: string,
-    key: 'title_include_any' | 'title_exclude_any' | 'keywords_any' | 'keywords_exclude' | 'onsite_ok_companies' | 'allowed_location_tokens' | 'exclude_companies',
+    key:
+      | 'title_include_any'
+      | 'title_exclude_any'
+      | 'keywords_any'
+      | 'keywords_exclude'
+      | 'onsite_ok_companies'
+      | 'allowed_location_tokens'
+      | 'direct_employers_allow'
+      | 'staffing_companies'
+      | 'exclude_companies',
     placeholder: string,
   ) => (
     <Field label={title} hint={hint}>
@@ -190,6 +199,37 @@ export function CriteriaSection() {
               'Keep location-restricted postings matching one of these tokens.',
               'allowed_location_tokens',
               'e.g. United States',
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Employment type">
+        <div className="space-y-5">
+          <div>
+            <Switch
+              checked={draft.direct_hire_only ?? false}
+              onChange={(v) => update((d) => void (d.direct_hire_only = v))}
+              label="Direct hire only (park staffing-agency and contract postings)"
+            />
+            <p className="mt-1.5 text-xs text-slate-500">
+              Screens the aggregator feeds (Adzuna, Remotive, RemoteOK, Arbeitnow); your company
+              boards are trusted. Parked jobs are listed on the Review page and come back on the
+              next run if you switch this off.
+            </p>
+          </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            {listCard(
+              'Never treat as staffing',
+              'Rescues false positives — the Review page’s “Not staffing” button adds here.',
+              'direct_employers_allow',
+              'e.g. SitusAMC',
+            )}
+            {listCard(
+              'Always treat as staffing',
+              'Parks these companies on any source, on top of the built-in agency list.',
+              'staffing_companies',
+              'e.g. Example Staffing LLC',
             )}
           </div>
         </div>
