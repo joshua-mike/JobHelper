@@ -161,7 +161,7 @@ def extract_profile(llm: LLM, model: str, resume_text: str) -> dict[str, Any] | 
         schema=EXTRACT_SCHEMA,
         tool_name="resume_profile",
         model=model,
-        max_tokens=8192,
+        effort="medium",
     )
 
 

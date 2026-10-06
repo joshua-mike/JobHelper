@@ -239,7 +239,7 @@ def tailor_resume(llm: LLM, model: str, profile: dict, job: dict,
     )
     result = llm.structured(
         TAILOR_INSTRUCTIONS, user, schema=TAILOR_SCHEMA,
-        tool_name="tailored_resume", model=model, max_tokens=1800,
+        tool_name="tailored_resume", model=model, effort="medium",
     )
     if not result:
         return base, ["Tailoring failed — using full profile resume."], []
@@ -346,7 +346,8 @@ def cover_letter(llm: LLM, model: str, profile: dict, job: dict) -> str | None:
         f"Role: {job.get('title','')} at {job.get('company','')}\n\n"
         f"Job description:\n{(job.get('description_clean') or '')[:3500]}"
     )
-    return llm.text(COVER_INSTRUCTIONS, user, model=model, max_tokens=600)
+    return llm.text(COVER_INSTRUCTIONS, user, model=model, effort="medium",
+                    label="cover_letter")
 
 
 # ---- Screening / knockout answers (no LLM needed) ----------------------------

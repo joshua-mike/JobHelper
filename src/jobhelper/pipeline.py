@@ -192,7 +192,7 @@ def run(use_cache: bool = False) -> dict:
                 counts["scored"] += 1
                 db.update_job(
                     conn, row["id"], status="scored",
-                    llm_score=int(res.get("fit_score", 0)),
+                    llm_score=max(0, min(100, int(res.get("fit_score", 0)))),
                     llm_musthaves_met=res.get("musthaves_met", []),
                     llm_missing=res.get("missing", []),
                     llm_rationale=res.get("rationale", ""),
@@ -298,6 +298,7 @@ def run(use_cache: bool = False) -> dict:
     db.finish_run(conn, run_id, **counts)
     conn.close()
 
+    llm.log_usage_summary()
     log.info("DONE. Digest: %s", digest_path)
     return {"run_id": run_id, "digest": str(digest_path), "llm_on": llm_on,
             "scorer_mode": scorer.mode, "duplicates": duplicates, **counts}

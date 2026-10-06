@@ -83,5 +83,5 @@ class Judge:
         )
         return self.llm.structured(
             self.system, user, schema=SCHEMA, tool_name="job_fit",
-            model=self.model, max_tokens=600,
+            model=self.model, effort="low",
         )

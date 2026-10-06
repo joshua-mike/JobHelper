@@ -113,7 +113,7 @@ class FakeLLM:
     available = True
 
     def structured(self, system, user, *, schema, tool_name, model,
-                   max_tokens=1024):
+                   max_tokens=1024, **_):
         self.last_system, self.last_user = system, user
         return {"summary": "S.", "skills_order": [], "jobs": [],
                 "change_notes": [], "missing_required": []}

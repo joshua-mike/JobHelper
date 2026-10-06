@@ -66,7 +66,7 @@ def extract_keywords(llm: LLM, model: str, job: dict) -> list[dict] | None:
     )
     result = llm.structured(
         EXTRACT_INSTRUCTIONS, user, schema=KEYWORD_SCHEMA,
-        tool_name="jd_keywords", model=model, max_tokens=1200,
+        tool_name="jd_keywords", model=model, effort="low",
     )
     if not result or not isinstance(result.get("keywords"), list):
         return None

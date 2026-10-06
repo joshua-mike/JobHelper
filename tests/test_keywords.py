@@ -104,7 +104,7 @@ class FakeLLM:
     def __init__(self, result):
         self._result = result
 
-    def structured(self, system, user, *, schema, tool_name, model, max_tokens=1024):
+    def structured(self, system, user, *, schema, tool_name, model, max_tokens=1024, **_):
         self.last_user = user
         return self._result
 

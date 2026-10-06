@@ -49,7 +49,7 @@ class FakeLLM:
         self._result = result
         self.last_user = None
 
-    def structured(self, system, user, *, schema, tool_name, model, max_tokens=1024):
+    def structured(self, system, user, *, schema, tool_name, model, max_tokens=1024, **_):
         self.last_system = system
         self.last_user = user
         self.last_schema = schema

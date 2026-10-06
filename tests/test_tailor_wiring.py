@@ -59,7 +59,7 @@ class FakeLLM:
     """Mimics jobhelper.llm.LLM with canned, adversarial output."""
     available = True
 
-    def structured(self, system, user, *, schema, tool_name, model, max_tokens=1024):
+    def structured(self, system, user, *, schema, tool_name, model, max_tokens=1024, **_):
         return {
             "summary": "Backend engineer focused on reliable Python services.",
             # 'Rust' and 'Kubernetes' are NOT in the profile — must be dropped.
@@ -73,7 +73,7 @@ class FakeLLM:
             "missing_required": ["Go"],
         }
 
-    def text(self, system, user, *, model, max_tokens=1024):
+    def text(self, system, user, *, model, max_tokens=1024, **_):
         return "Dear Globex team,\nI'd love to help...\nBest, Jane"
 
 
