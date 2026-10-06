@@ -7,6 +7,18 @@ export function fmtDuration(seconds: number | null | undefined): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
+/** 1234 -> "1.2k", 2_500_000 -> "2.5M". */
+export function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+export function fmtUsd(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return n < 0.01 && n > 0 ? '<$0.01' : `$${n.toFixed(2)}`
+}
+
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString(undefined, {

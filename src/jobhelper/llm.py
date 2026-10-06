@@ -38,6 +38,32 @@ _UNSUPPORTED_SCHEMA_KEYS = {"minimum", "maximum", "exclusiveMinimum",
                             "exclusiveMaximum", "multipleOf", "minLength",
                             "maxLength", "minItems", "maxItems"}
 
+# USD per million tokens: (input, output, cache read, cache write). Cache
+# writes use the 5-minute TTL rate (1.25x input). Used only for the dashboard's
+# estimated run cost; unknown models show tokens without a cost.
+MODEL_PRICES: dict[str, tuple[float, float, float, float]] = {
+    "claude-opus-5-5": (4.00, 20.00, 0.20, 5.00),
+    "claude-opus-5": (5.00, 25.00, 0.50, 6.25),
+    "claude-opus-4-8": (5.00, 25.00, 0.50, 6.25),
+    "claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50),
+    "claude-sonnet-5": (2.00, 10.00, 0.20, 2.50),
+    "claude-sonnet-4-6": (3.00, 15.00, 0.30, 3.75),
+    "claude-haiku-4-5": (1.00, 5.00, 0.10, 1.25),
+}
+
+
+def estimate_cost(model: str, usage: dict[str, int]) -> float | None:
+    """Estimated USD for one model's accumulated usage; None if unpriced."""
+    prices = MODEL_PRICES.get(model)
+    if prices is None:
+        return None
+    p_in, p_out, p_read, p_write = prices
+    return (usage.get("input_tokens", 0) * p_in
+            + usage.get("output_tokens", 0) * p_out
+            + usage.get("cache_read_input_tokens", 0) * p_read
+            + usage.get("cache_creation_input_tokens", 0) * p_write) / 1_000_000
+
+
 _USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_read_input_tokens",
                  "cache_creation_input_tokens")
 

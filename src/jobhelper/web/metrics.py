@@ -5,10 +5,12 @@ Timestamps are stored UTC (util.now_iso), so day-bucketing applies SQLite's
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from .. import db
+from ..llm import estimate_cost
 
 PENDING_STATUSES = ("proposed", "tailored", "approved")
 # Current-state buckets shown in the pipeline funnel, in pipeline order.
@@ -150,7 +152,29 @@ def runs(limit: int = 20, runner_active: bool = False) -> list[dict[str, Any]]:
         else:
             # Crashed mid-run, or a Task Scheduler run in flight elsewhere.
             row["run_state"] = "incomplete"
+        row["llm_usage"], row["llm_cost_usd"] = _llm_usage(row.get("llm_usage"))
     return rows
+
+
+def _llm_usage(raw: str | None) -> tuple[list[dict[str, Any]], float | None]:
+    """run_log.llm_usage JSON -> per-model rows with estimated cost, plus the
+    run total (None when no model in the run has a known price)."""
+    try:
+        by_model = json.loads(raw) if raw else {}
+    except ValueError:
+        by_model = {}
+    out, total = [], None
+    for model, u in sorted(by_model.items()):
+        cost = estimate_cost(model, u)
+        if cost is not None:
+            total = (total or 0.0) + cost
+        out.append({"model": model, "calls": u.get("calls", 0),
+                    "input_tokens": u.get("input_tokens", 0),
+                    "output_tokens": u.get("output_tokens", 0),
+                    "cache_read_input_tokens": u.get("cache_read_input_tokens", 0),
+                    "cache_creation_input_tokens": u.get("cache_creation_input_tokens", 0),
+                    "cost_usd": cost})
+    return out, total
 
 
 def recent_jobs(limit: int = 15) -> list[dict[str, Any]]:

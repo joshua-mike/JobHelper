@@ -6,6 +6,7 @@ are isolated (the row is marked 'error' and the batch continues).
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -295,7 +296,8 @@ def run(use_cache: bool = False) -> dict:
         tailored.sort(key=lambda j: j.get("embed_score") or 0, reverse=True)
     _, digest_path = render_digest(tailored, run_id, scorer.mode, llm_on)
 
-    db.finish_run(conn, run_id, **counts)
+    db.finish_run(conn, run_id, **counts,
+                  llm_usage=json.dumps(llm.usage) if llm.usage else None)
     conn.close()
 
     llm.log_usage_summary()

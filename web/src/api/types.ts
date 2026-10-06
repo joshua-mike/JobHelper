@@ -44,8 +44,20 @@ export interface SourceStats {
   avg_llm_score: number | null
 }
 
+export interface ModelUsage {
+  model: string
+  calls: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+  cost_usd: number | null // null = model not in llm.MODEL_PRICES
+}
+
 export interface RunLogEntry extends LastRun {
   run_state: 'complete' | 'incomplete' | 'running'
+  llm_usage: ModelUsage[]
+  llm_cost_usd: number | null
 }
 
 export interface RecentJob {

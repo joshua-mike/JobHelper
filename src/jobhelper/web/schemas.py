@@ -50,8 +50,20 @@ class SourceStats(BaseModel):
     avg_llm_score: float | None = None
 
 
+class ModelUsage(BaseModel):
+    model: str
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cost_usd: float | None = None  # None = model not in llm.MODEL_PRICES
+
+
 class RunLogEntry(LastRun):
     run_state: str  # complete | incomplete | running
+    llm_usage: list[ModelUsage] = []
+    llm_cost_usd: float | None = None
 
 
 class RecentJob(BaseModel):

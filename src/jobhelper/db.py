@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS run_log (
     scored      INTEGER DEFAULT 0,
     proposed    INTEGER DEFAULT 0,
     errors      INTEGER DEFAULT 0,
-    notes       TEXT
+    notes       TEXT,
+    llm_usage   TEXT  -- JSON {model: {calls, input_tokens, ...}}
 );
 """
 
@@ -112,6 +113,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN ats_report TEXT")
     if "employer_type" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN employer_type TEXT")
+    run_cols = {row[1] for row in conn.execute("PRAGMA table_info(run_log)")}
+    if "llm_usage" not in run_cols:
+        conn.execute("ALTER TABLE run_log ADD COLUMN llm_usage TEXT")
     if "content_hash" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN content_hash TEXT")
         # Backfill so pre-existing rows participate in content dedup. Rows too
