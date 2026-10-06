@@ -40,7 +40,7 @@ _BODY_MODELS = {
     "criteria": CriteriaConfig,
 }
 
-FALLBACK_EXTRACT_MODEL = "claude-opus-4-8"
+FALLBACK_EXTRACT_MODEL = "claude-opus-5-5"
 
 
 def _run_active() -> bool:

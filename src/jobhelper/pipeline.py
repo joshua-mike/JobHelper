@@ -172,7 +172,7 @@ def run(use_cache: bool = False) -> dict:
     conn.commit()
 
     llm = LLM()
-    judge = Judge(llm, criteria.get("judge_model", "claude-sonnet-4-6"),
+    judge = Judge(llm, criteria.get("judge_model", "claude-sonnet-5-5"),
                   profile, criteria) if has_anthropic() else None
     llm_on = bool(judge and judge.available)
 
@@ -227,7 +227,7 @@ def run(use_cache: bool = False) -> dict:
     log.info("proposed=%d (llm=%s)", len(proposals), llm_on)
 
     # ---- 6. TAILOR ----
-    tailor_model = criteria.get("tailor_model", "claude-opus-4-8")
+    tailor_model = criteria.get("tailor_model", "claude-opus-5-5")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     name_slug = _safe((profile.get("identity", {}) or {}).get("full_name", "Resume"))
     for row in proposals:

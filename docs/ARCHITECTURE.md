@@ -577,11 +577,11 @@ surrounding quotes and **never overwrites a real environment variable**.
 | `max_age_days` | — | 3 filter **and** 3.5 expiry |
 | `scoring` | `"auto"` | 4a |
 | `llm_shortlist` | `15` | 4b |
-| `judge_model` | `claude-sonnet-4-6` | 4c |
+| `judge_model` | `claude-sonnet-5-5` | 4c |
 | `min_score` | `55` | 5 (**LLM mode only**) |
 | `daily_target` | `4` | 5 (ceiling, not a quota) |
 | `max_per_company` | `1` | 5 |
-| `tailor_model` | `claude-opus-4-8` | 6 (judge, keywords, tailor, cover letter) |
+| `tailor_model` | `claude-opus-5-5` | 6 (judge, keywords, tailor, cover letter) |
 
 Values in the shipped `criteria.example.yaml` differ from these code fallbacks
 (e.g. `daily_target: 6`, `max_per_company: 2`); the fallbacks only apply when a

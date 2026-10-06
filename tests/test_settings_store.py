@@ -136,11 +136,11 @@ def main() -> int:
 
     print("== full-parity resave keeps quoting and folded style ==")
     crit_full = st.load_data("criteria")
-    crit_full["judge_model"] = "claude-opus-4-8"  # one real edit
+    crit_full["judge_model"] = "claude-opus-5-5"  # one real edit
     _, changed = st.save("criteria", crit_full)   # ...but send every key
     check(changed, "full-parity save with one edit writes")
     text = st.config_path("criteria").read_text(encoding="utf-8")
-    check('judge_model: "claude-opus-4-8"' in text,
+    check('judge_model: "claude-opus-5-5"' in text,
           "edited string stays double-quoted")
     check('scoring: "auto"' in text, "untouched string keeps quotes")
     check('  - "engineer"' in text, "untouched list strings keep quotes")
