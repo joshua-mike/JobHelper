@@ -1,16 +1,19 @@
-"""Offline parsing tests for the Microsoft (pcsx) and SmartRecruiters adapters.
+"""Offline parsing tests for the source adapters (Microsoft, SmartRecruiters,
+Workday, Amazon, Adzuna), including Workday's per-tenant cap share.
 Uses a fake fetcher returning canned payloads — no network.
 Run:  python tests/test_sources_parsing.py
 """
 from __future__ import annotations
 
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from jobhelper.sources.amazon import AmazonSource
 from jobhelper.sources.microsoft import MicrosoftSource
+from jobhelper.sources.registry import build_sources
 from jobhelper.sources.smartrecruiters import SmartRecruitersSource
 from jobhelper.sources.workday import WorkdaySource
 
@@ -31,6 +34,41 @@ class FakeFetcher:
 
     def post_json(self, url, json_body, headers=None):
         return self._resolve(url, json_body)
+
+
+class WorkdayFake:
+    """Multi-tenant Workday CXS stub: {tenant: [externalPath, ...]}.
+
+    Pages the search like the real endpoint and records every detail call, so
+    tests can assert which postings cost a detail fetch.
+    """
+    def __init__(self, boards):
+        self.boards = boards
+        self.detail_calls = []
+
+    @staticmethod
+    def _tenant(url):
+        return url.split("//", 1)[1].split(".", 1)[0]
+
+    def post_json(self, url, json_body, headers=None):
+        paths = self.boards[self._tenant(url)]
+        start = json_body["offset"]
+        return {"total": len(paths), "jobPostings": [
+            {"title": f"Software Engineer {p}", "externalPath": p,
+             "locationsText": "Remote", "bulletFields": [p.rsplit("_", 1)[-1]]}
+            for p in paths[start:start + json_body["limit"]]]}
+
+    def get_json(self, url, params=None, headers=None):
+        self.detail_calls.append(url)
+        tenant, ext = self._tenant(url), "/job/" + url.split("/job/", 1)[1]
+        return {"jobPostingInfo": {
+            "jobDescription": f"<p>Posting {ext}</p>", "startDate": "2026-10-01",
+            "externalUrl": f"https://{tenant}.wd1.myworkdayjobs.com/External{ext}"}}
+
+
+def _wd_tenants(*names):
+    return [{"tenant": n, "dc": "wd1", "site": "External", "company": n.upper()}
+            for n in names]
 
 
 def check(cond, msg):
@@ -159,6 +197,68 @@ def test_workday():
     check(j4.remote_type == "onsite", f"remoteType 'Onsite' -> onsite ({j4.remote_type})")
 
 
+def test_workday_tenant_share():
+    # ITEM-37: the cap used to be first-come across tenants, so the first few
+    # in sources.yaml used all of it every run and the rest were never crawled.
+    print("== Workday: the cap is split fairly, every tenant crawled ==")
+    boards = {t: [f"/job/Remote/{t}_{n}" for n in range(5)] for t in ("a", "b", "c")}
+    f = WorkdayFake(boards)
+    jobs = WorkdaySource(f, cap=6, tenants=_wd_tenants("a", "b", "c"),
+                         searches=[""], per_search=25).fetch()
+    by = Counter(j.company for j in jobs)
+    check(by == {"A": 2, "B": 2, "C": 2}, f"2 jobs from each tenant ({dict(by)})")
+    check(len(f.detail_calls) == 6, f"no detail calls past the cap ({len(f.detail_calls)})")
+
+    print("== Workday: a small tenant's unused share rolls forward ==")
+    boards = {"a": ["/job/Remote/a_0"],
+              "b": [f"/job/Remote/b_{n}" for n in range(5)],
+              "c": [f"/job/Remote/c_{n}" for n in range(5)]}
+    jobs = WorkdaySource(WorkdayFake(boards), cap=6, tenants=_wd_tenants("a", "b", "c"),
+                         searches=[""], per_search=25).fetch()
+    by = Counter(j.company for j in jobs)
+    check(by == {"A": 1, "B": 2, "C": 3}, f"A 1, B 5//2, C the rest ({dict(by)})")
+
+
+def test_workday_known_skip():
+    print("== Workday: stored postings skip the detail call ==")
+    boards = {"a": [f"/job/Remote/a_{n}" for n in range(3)]}
+    first = WorkdaySource(WorkdayFake(boards), cap=400, tenants=_wd_tenants("a"),
+                          searches=[""], per_search=25).fetch()
+    stored = {j.job_hash for j in first[:2]}
+    f = WorkdayFake(boards)
+    again = WorkdaySource(f, cap=400, tenants=_wd_tenants("a"), searches=[""],
+                          per_search=25, is_known=stored.__contains__).fetch()
+    check([j.url for j in again] == [first[2].url],
+          "only the unstored posting comes back")
+    check(len(f.detail_calls) == 1,
+          f"one detail call; the hash is predicted before it ({len(f.detail_calls)})")
+
+    print("== Workday: stored postings don't use up the cap ==")
+    boards = {"a": [f"/job/Remote/a_{n}" for n in range(4)],
+              "b": [f"/job/Remote/b_{n}" for n in range(2)]}
+    seen = WorkdaySource(WorkdayFake(boards), cap=400, tenants=_wd_tenants("a", "b"),
+                         searches=[""], per_search=25).fetch()
+    stored = {j.job_hash for j in seen if j.company == "A"
+              and not j.url.endswith("a_3")}
+    jobs = WorkdaySource(WorkdayFake(boards), cap=2, tenants=_wd_tenants("a", "b"),
+                         searches=[""], per_search=25,
+                         is_known=stored.__contains__).fetch()
+    check(sorted(j.url.rsplit("/", 1)[1] for j in jobs) == ["a_3", "b_0"],
+          f"A's one new posting plus B's share ({[j.url for j in jobs]})")
+
+
+def test_registry_passes_is_known():
+    print("== build_sources hands the stored-posting check to Workday ==")
+    def is_known(h):
+        return False
+    cfg = {"ats": {"workday": _wd_tenants("a")}, "workday_searches": [""]}
+    srcs = [s for s in build_sources(cfg, is_known=is_known) if s.name == "workday"]
+    check(len(srcs) == 1 and srcs[0].is_known is is_known, "Workday gets is_known")
+    srcs = [s for s in build_sources(cfg) if s.name == "workday"]
+    check(srcs[0].is_known("anything") is False,
+          "without it every posting counts as new (Settings Verify path)")
+
+
 def test_amazon():
     print("== Amazon search.json adapter ==")
     search = {"hits": 1, "jobs": [{
@@ -264,6 +364,9 @@ def main() -> int:
     test_microsoft()
     test_smartrecruiters()
     test_workday()
+    test_workday_tenant_share()
+    test_workday_known_skip()
+    test_registry_passes_is_known()
     test_amazon()
     test_adzuna()
     test_fetcher_get_unchanged()

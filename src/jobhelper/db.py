@@ -205,6 +205,13 @@ def jobs_by_status(conn: sqlite3.Connection, *statuses: str) -> list[sqlite3.Row
     ))
 
 
+def job_hash_exists(conn: sqlite3.Connection, job_hash: str) -> bool:
+    """True if any row (any status) holds this identity — i.e. insert_job
+    would ignore it. Lets a source skip work for postings already stored."""
+    return conn.execute("SELECT 1 FROM jobs WHERE job_hash=? LIMIT 1",
+                        (job_hash,)).fetchone() is not None
+
+
 def get_job(conn: sqlite3.Connection, job_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
 

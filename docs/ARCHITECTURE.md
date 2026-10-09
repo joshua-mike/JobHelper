@@ -422,7 +422,8 @@ src/jobhelper/
 │   ├── registry.py         build_sources(): sources.yaml → adapter instances
 │   ├── remotive/arbeitnow/remoteok.py      keyless aggregators (no config)
 │   ├── greenhouse/lever/ashby/smartrecruiters.py   keyless, per-company slugs
-│   ├── workday.py          keyless CXS API; {tenant, dc, site} triples + searches
+│   ├── workday.py          keyless CXS API; {tenant, dc, site} triples + searches;
+│   │                       skips stored postings, splits the cap across tenants
 │   ├── microsoft.py        Eightfold "pcsx" API; items are SEARCH QUERIES
 │   ├── amazon.py           amazon.jobs search API; items are SEARCH QUERIES
 │   ├── usajobs.py          KEYED (USAJOBS_API_KEY); federal, remote-scoped
@@ -667,6 +668,13 @@ pass, so they are called out explicitly.
 
 Set `volatile_url = True` on the `RawJob` if the source signs its URLs per
 request, or dedupe will break.
+
+If the source needs a detail call per posting, take an `is_known(job_hash)`
+callable (as `WorkdaySource` does; `build_sources` passes the pipeline's DB
+lookup) and skip postings already stored *before* that call. Otherwise each
+run spends its cap re-fetching postings it already has. If one adapter crawls
+several boards, share the cap between them so the first boards in the list
+can't use all of it (ITEM-37).
 
 ### Add a hard-filter rule
 

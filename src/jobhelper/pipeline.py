@@ -117,7 +117,10 @@ def run(use_cache: bool = False) -> dict:
 
     # ---- 1. SOURCE + 2. DEDUPE ----
     duplicates = 0  # content-dups parked at ingest (run_log has no column)
-    for source in build_sources(sources_cfg, use_cache=use_cache):
+    def is_known(job_hash: str) -> bool:
+        return db.job_hash_exists(conn, job_hash)
+
+    for source in build_sources(sources_cfg, use_cache=use_cache, is_known=is_known):
         try:
             jobs = source.fetch()
         except Exception as exc:

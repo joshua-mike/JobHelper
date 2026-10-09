@@ -1,7 +1,7 @@
 """Build the list of enabled JobSource adapters from config/sources.yaml."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from ..util import get_logger
 from .adzuna import AdzunaSource
@@ -27,7 +27,10 @@ _AGGREGATORS = {
 }
 
 
-def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False) -> list[JobSource]:
+def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False,
+                  is_known: Callable[[str], bool] | None = None) -> list[JobSource]:
+    """`is_known(job_hash)` says whether a posting is already stored; sources
+    with a per-posting detail call (Workday) use it to skip that call."""
     cap = int(sources_cfg.get("per_source_cap", 400))
     delay = float(sources_cfg.get("request_delay_seconds", 1.0))
     fetcher = Fetcher(delay=delay, use_cache=use_cache)
@@ -57,7 +60,7 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False) -> list[
         searches = list(sources_cfg.get("workday_searches", []) or [])
         per_search = int(sources_cfg.get("workday_per_search", 25))
         sources.append(WorkdaySource(fetcher, cap, list(ats_cfg["workday"]),
-                                      searches, per_search))
+                                      searches, per_search, is_known=is_known))
     # Amazon careers: the list items are SEARCH QUERIES, not company slugs.
     if ats_cfg.get("amazon"):
         per_query = int(sources_cfg.get("amazon_per_query", 40))

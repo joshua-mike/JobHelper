@@ -151,10 +151,25 @@ def test_migration_backfill():
           "post-migration insert dedupes against backfilled history")
 
 
+def test_job_hash_exists():
+    # The lookup sources use to skip postings already stored (ITEM-37). It must
+    # agree with INSERT OR IGNORE: any stored row counts, whatever its status.
+    print("== job_hash_exists ==")
+    conn = _mem_db()
+    a = _job()
+    check(not db.job_hash_exists(conn, a.job_hash), "unknown before insert")
+    db.insert_job(conn, a)
+    check(db.job_hash_exists(conn, a.job_hash), "known after insert")
+    conn.execute("UPDATE jobs SET status='filtered_out'")
+    check(db.job_hash_exists(conn, a.job_hash),
+          "still known once filtered out (re-insert would be ignored)")
+
+
 if __name__ == "__main__":
     test_volatile_url_identity()
     test_content_duplicate()
     test_thin_rows_never_content_match()
     test_window_expiry()
     test_migration_backfill()
+    test_job_hash_exists()
     print("ALL PASS")
