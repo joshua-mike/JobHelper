@@ -60,13 +60,10 @@ class WorkdaySource(JobSource):
     def __init__(self, fetcher, cap: int, tenants: list[dict],
                  searches: list[str] | None = None, per_search: int = 25,
                  is_known: Callable[[str], bool] | None = None) -> None:
-        super().__init__(fetcher, cap)
+        super().__init__(fetcher, cap, is_known)
         self.tenants = tenants
         self.searches = searches or [""]
         self.per_search = per_search
-        # job_hash -> already stored? The pipeline passes a DB lookup; without
-        # one (Settings Verify) every posting is treated as new.
-        self.is_known = is_known or (lambda _job_hash: False)
 
     def _job_hash(self, base: str, site: str, ext: str) -> str:
         """The job_hash this posting will get, known before its detail call.
@@ -102,27 +99,9 @@ class WorkdaySource(JobSource):
         return out[: self.per_search]
 
     def fetch(self) -> list[RawJob]:
-        """Crawl every tenant, giving each a fair share of the cap.
-
-        Each tenant may take an equal share of what's left of the cap; one that
-        needs less leaves the rest to the tenants after it. Postings already
-        stored don't count, so a share is spent only on new ones.
-        """
-        jobs: list[RawJob] = []
-        known = 0
-        for i, t in enumerate(self.tenants):
-            left = self.cap - len(jobs)
-            if left <= 0:  # only when cap < number of tenants
-                log.info("workday: hit cap %d; %d tenants not crawled",
-                         self.cap, len(self.tenants) - i)
-                break
-            share = max(1, left // (len(self.tenants) - i))
-            new, skipped = self._crawl_tenant(t, share)
-            jobs.extend(new)
-            known += skipped
-        log.info("workday: %d new jobs from %d tenants (%d stored postings skipped)",
-                 len(jobs), len(self.tenants), known)
-        return jobs
+        """Crawl every tenant, each with a fair share of the cap (JobSource._share_cap).
+        Postings already stored don't count, so a share is spent only on new ones."""
+        return self._share_cap(self.tenants, self._crawl_tenant)
 
     def _crawl_tenant(self, t: dict, share: int) -> tuple[list[RawJob], int]:
         """Up to `share` new postings from one tenant, and how many stored ones it skipped."""

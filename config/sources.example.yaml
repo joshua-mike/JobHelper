@@ -160,9 +160,10 @@ ats:
 
 # Politeness: seconds to wait between HTTP requests to the same host.
 request_delay_seconds: 1.0
-# Hard cap on jobs ingested per source per run (safety valve). Workday applies it
-# to NEW postings only (stored ones are skipped before their detail call) and
-# splits it fairly across tenants, so every tenant is crawled each run.
+# Hard cap on jobs ingested per source per run (safety valve). Workday, Greenhouse,
+# Lever, Ashby and SmartRecruiters apply it to NEW postings only (stored ones are
+# skipped, before their detail call where there is one) and split it fairly across
+# their boards/tenants, so every board is crawled each run.
 per_source_cap: 400
 # Microsoft only: top N results pulled per search query (keeps the crawl low-volume).
 microsoft_per_query: 40

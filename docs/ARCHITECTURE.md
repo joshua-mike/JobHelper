@@ -421,7 +421,8 @@ src/jobhelper/
 │   ├── base.py             JobSource ABC + Fetcher (throttle · retry · cache)
 │   ├── registry.py         build_sources(): sources.yaml → adapter instances
 │   ├── remotive/arbeitnow/remoteok.py      keyless aggregators (no config)
-│   ├── greenhouse/lever/ashby/smartrecruiters.py   keyless, per-company slugs
+│   ├── greenhouse/lever/ashby/smartrecruiters.py   keyless, per-company slugs;
+│   │                       skip stored postings, split the cap across boards
 │   ├── workday.py          keyless CXS API; {tenant, dc, site} triples + searches;
 │   │                       skips stored postings, splits the cap across tenants
 │   ├── microsoft.py        Eightfold "pcsx" API; items are SEARCH QUERIES
@@ -669,12 +670,15 @@ pass, so they are called out explicitly.
 Set `volatile_url = True` on the `RawJob` if the source signs its URLs per
 request, or dedupe will break.
 
-If the source needs a detail call per posting, take an `is_known(job_hash)`
-callable (as `WorkdaySource` does; `build_sources` passes the pipeline's DB
-lookup) and skip postings already stored *before* that call. Otherwise each
-run spends its cap re-fetching postings it already has. If one adapter crawls
-several boards, share the cap between them so the first boards in the list
-can't use all of it (ITEM-37).
+Every `JobSource` takes an `is_known(job_hash)` callable (base class;
+`build_sources` passes the pipeline's DB lookup). A multi-board adapter must
+drop stored postings before they count toward the cap and split the cap across
+boards, or the first boards in the list spend all of it on postings already
+stored (ITEM-37, ITEM-39). A board fetched whole goes through
+`JobSource._share_fetched` (max-min fair split). A board that needs a detail
+call per posting goes through `JobSource._share_cap`: predict the `job_hash`
+from the list entry, skip stored postings before the detail call, and carry
+unused share forward.
 
 ### Add a hard-filter rule
 

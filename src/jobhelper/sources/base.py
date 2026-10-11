@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Callable, Sequence
 from urllib.parse import urlsplit
 
 import httpx
@@ -147,10 +147,90 @@ class JobSource(ABC):
     """One adapter per source. fetch() yields normalized RawJob records."""
     name: str = "base"
 
-    def __init__(self, fetcher: Fetcher, cap: int = 400) -> None:
+    def __init__(self, fetcher: Fetcher, cap: int = 400,
+                 is_known: Callable[[str], bool] | None = None) -> None:
         self.fetcher = fetcher
         self.cap = cap
+        # job_hash -> already stored? The pipeline passes a DB lookup; without
+        # one (Settings Verify) every posting is treated as new.
+        self.is_known = is_known or (lambda _job_hash: False)
 
     @abstractmethod
     def fetch(self) -> list[RawJob]:
         ...
+
+    def _share_cap(self, boards: Sequence[Any],
+                   crawl: Callable[[Any, int], tuple[list[RawJob], int]]) -> list[RawJob]:
+        """Crawl every board, giving each a fair share of the cap.
+
+        Each board may take an equal share of what's left of the cap; one that
+        needs less leaves the rest to the boards after it. `crawl(board, share)`
+        returns up to `share` NEW postings and how many stored ones it skipped,
+        so a share is spent only on new ones (ITEM-37, ITEM-39: first-come, the
+        first boards in sources.yaml used all of it and the rest never landed).
+        """
+        jobs: list[RawJob] = []
+        skipped = 0
+        for i, board in enumerate(boards):
+            left = self.cap - len(jobs)
+            if left <= 0:  # only when cap < number of boards
+                log.info("%s: hit cap %d; %d boards not crawled",
+                         self.name, self.cap, len(boards) - i)
+                break
+            share = max(1, left // (len(boards) - i))
+            new, board_skipped = crawl(board, share)
+            jobs.extend(new)
+            skipped += board_skipped
+        log.info("%s: %d new jobs from %d boards (%d stored postings skipped)",
+                 self.name, len(jobs), len(boards), skipped)
+        return jobs
+
+    def _share_fetched(self, boards: Sequence[str],
+                       fetch_board: Callable[[str], list[RawJob]]) -> list[RawJob]:
+        """Fetch every board whole, then split the cap max-min fairly over their
+        NEW postings.
+
+        `fetch_board(board)` returns all of a board's postings ([] on failure).
+        Stored postings and repeats are dropped first, so the cap counts new ones
+        only. Boards are then served smallest first, each taking its new postings
+        or an equal share of what's left, whichever is less: what a small board
+        doesn't need goes to the bigger ones wherever they sit in sources.yaml.
+        Unlike _share_cap, every posting is already in hand here; _share_cap must
+        settle a board's share before paying for its detail calls, so its unused
+        share can only carry forward (ITEM-39).
+        """
+        seen: set[str] = set()
+        fetched: list[tuple[str, list[RawJob], int]] = []  # board, new, stored skipped
+        for board in boards:
+            new: list[RawJob] = []
+            skipped = 0
+            for job in fetch_board(board):
+                h = job.job_hash
+                if h in seen:
+                    continue
+                seen.add(h)
+                if self.is_known(h):
+                    skipped += 1
+                else:
+                    new.append(job)
+            fetched.append((board, new, skipped))
+
+        kept = [0] * len(fetched)
+        left = self.cap
+        by_size = sorted(range(len(fetched)), key=lambda i: len(fetched[i][1]))
+        for n, i in enumerate(by_size):
+            kept[i] = min(len(fetched[i][1]), left // (len(by_size) - n))
+            left -= kept[i]
+
+        jobs: list[RawJob] = []
+        for (board, new, skipped), k in zip(fetched, kept):
+            if k < len(new):
+                log.info("%s[%s]: %d new (share reached, %d more next run), %d stored skipped",
+                         self.name, board, k, len(new) - k, skipped)
+            else:
+                log.info("%s[%s]: %d new, %d stored skipped",
+                         self.name, board, k, skipped)
+            jobs.extend(new[:k])
+        log.info("%s: %d new jobs from %d boards (%d stored postings skipped)",
+                 self.name, len(jobs), len(boards), sum(s for _, _, s in fetched))
+        return jobs

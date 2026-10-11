@@ -1,5 +1,6 @@
 """Offline parsing tests for the source adapters (Microsoft, SmartRecruiters,
-Workday, Amazon, Adzuna), including Workday's per-tenant cap share.
+Workday, Amazon, Adzuna), plus the per-board cap share and stored-posting skip
+of the multi-board adapters (Greenhouse, Lever, Ashby, SmartRecruiters, Workday).
 Uses a fake fetcher returning canned payloads — no network.
 Run:  python tests/test_sources_parsing.py
 """
@@ -12,6 +13,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from jobhelper.sources.amazon import AmazonSource
+from jobhelper.sources.ashby import AshbySource
+from jobhelper.sources.greenhouse import GreenhouseSource
+from jobhelper.sources.lever import LeverSource
 from jobhelper.sources.microsoft import MicrosoftSource
 from jobhelper.sources.registry import build_sources
 from jobhelper.sources.smartrecruiters import SmartRecruitersSource
@@ -69,6 +73,80 @@ class WorkdayFake:
 def _wd_tenants(*names):
     return [{"tenant": n, "dc": "wd1", "site": "External", "company": n.upper()}
             for n in names]
+
+
+# The list-only ATSes: one board fetch carries every posting, in each API's shape.
+_LIST_ATS = {
+    "greenhouse": (GreenhouseSource, lambda board, ids: {"jobs": [
+        {"id": i, "absolute_url": f"https://boards.greenhouse.io/{board}/jobs/{i}",
+         "title": f"Software Engineer {i}", "location": {"name": "Remote"},
+         "content": "<p>Build things.</p>", "updated_at": "2026-10-01T00:00:00Z"}
+        for i in ids]}),
+    "lever": (LeverSource, lambda board, ids: [
+        {"id": i, "hostedUrl": f"https://jobs.lever.co/{board}/{i}",
+         "text": f"Software Engineer {i}", "categories": {"location": "Remote"},
+         "workplaceType": "remote", "descriptionPlain": "Build things.",
+         "createdAt": 1790000000000}
+        for i in ids]),
+    "ashby": (AshbySource, lambda board, ids: {"jobs": [
+        {"id": i, "jobUrl": f"https://jobs.ashbyhq.com/{board}/{i}",
+         "title": f"Software Engineer {i}", "location": "Remote", "isRemote": True,
+         "descriptionHtml": "<p>Build things.</p>", "publishedAt": "2026-10-01"}
+        for i in ids]}),
+}
+
+
+class BoardFake:
+    """Multi-board stub for a list-only ATS: {board: n_postings or [ids]}; a count
+    gives ids '{board}_{n}'."""
+    def __init__(self, payload, boards):
+        self.payload = payload
+        self.boards = boards
+
+    def get_json(self, url, params=None, headers=None):
+        # .../boards/{token}/jobs (Greenhouse) or .../{site} (Lever, Ashby)
+        parts = url.split("/")
+        board = parts[-2] if parts[-1] == "jobs" else parts[-1]
+        ids = self.boards[board]
+        if isinstance(ids, int):
+            ids = [f"{board}_{n}" for n in range(ids)]
+        return self.payload(board, ids)
+
+
+class SmartRecruitersFake:
+    """Multi-slug SmartRecruiters stub: {slug: [(id, name, postingUrl), ...]}.
+
+    Pages the list like the real endpoint (limit/offset/totalFound) and records
+    every list page and detail call. A detail call for an id in `failing` raises.
+    """
+    def __init__(self, boards, failing=()):
+        self.boards = boards
+        self.failing = set(failing)
+        self.list_calls = []
+        self.detail_calls = []
+
+    def get_json(self, url, params=None, headers=None):
+        slug, _, pid = url.split("/companies/", 1)[1].partition("/postings")
+        posts = self.boards[slug]
+        if not pid:
+            self.list_calls.append((slug, params["offset"]))
+            page = posts[params["offset"]:params["offset"] + params["limit"]]
+            return {"totalFound": len(posts), "content": [
+                {"id": p, "name": name, "company": {"name": slug.upper()},
+                 "location": {"city": "Austin", "country": "us", "remote": True}}
+                for p, name, _ in page]}
+        self.detail_calls.append(url)
+        if pid.lstrip("/") in self.failing:
+            raise RuntimeError("HTTP 503")
+        posting_url = next(u for p, _, u in posts if p == pid.lstrip("/"))
+        return {"postingUrl": posting_url, "jobAd": {"sections": {
+            "jobDescription": {"text": f"<p>Posting {pid}</p>"}}}}
+
+
+def _sr_board(slug, n):
+    return [(f"{slug}{i}", f"Software Engineer {i}",
+             f"https://jobs.smartrecruiters.com/{slug}/{slug}{i}-software-engineer-{i}")
+            for i in range(n)]
 
 
 def check(cond, msg):
@@ -247,16 +325,160 @@ def test_workday_known_skip():
           f"A's one new posting plus B's share ({[j.url for j in jobs]})")
 
 
+def test_list_ats_board_share():
+    # ITEM-39: Greenhouse/Lever/Ashby joined every board then cut at the cap, so
+    # the boards at the end of sources.yaml never produced a row.
+    for kind, (cls, payload) in _LIST_ATS.items():
+        print(f"== {kind}: the cap is split fairly, every board kept ==")
+        jobs = cls(BoardFake(payload, {"a": 5, "b": 5, "c": 5}), 6, ["a", "b", "c"]).fetch()
+        ids = [j.source_job_id for j in jobs]
+        check(ids == ["a_0", "a_1", "b_0", "b_1", "c_0", "c_1"],
+              f"the first 2 from each board ({ids})")
+
+        print(f"== {kind}: a small board's unused share rolls forward ==")
+        jobs = cls(BoardFake(payload, {"a": 1, "b": 5, "c": 5}), 6, ["a", "b", "c"]).fetch()
+        by = Counter(j.company for j in jobs)
+        check(by == {"A": 1, "B": 2, "C": 3}, f"A 1, B 5//2, C the rest ({dict(by)})")
+
+        # Every posting is in hand, so unused cap can go to an EARLIER board too.
+        print(f"== {kind}: unused share flows back to an earlier board ==")
+        jobs = cls(BoardFake(payload, {"a": 10, "b": 0, "c": 0}), 6, ["a", "b", "c"]).fetch()
+        ids = [j.source_job_id for j in jobs]
+        check(ids == [f"a_{n}" for n in range(6)], f"A takes all 6, not 6//3 ({ids})")
+
+        print(f"== {kind}: small boards keep all theirs, the big one the rest ==")
+        jobs = cls(BoardFake(payload, {"a": 5, "b": 1, "c": 1}), 6, ["a", "b", "c"]).fetch()
+        ids = [j.source_job_id for j in jobs]
+        check(ids == ["a_0", "a_1", "a_2", "a_3", "b_0", "c_0"],
+              f"A 4, B 1, C 1, in sources.yaml order ({ids})")
+
+
+def test_list_ats_duplicates():
+    for kind, (cls, payload) in _LIST_ATS.items():
+        print(f"== {kind}: a repeated posting takes one slot ==")
+        boards = {"a": ["a_0", "a_0", "a_1"], "b": 1}
+        jobs = cls(BoardFake(payload, boards), 3, ["a", "b"]).fetch()
+        ids = [j.source_job_id for j in jobs]
+        check(ids == ["a_0", "a_1", "b_0"], f"a_0 once, a_1 not crowded out ({ids})")
+
+
+def test_list_ats_known_skip():
+    for kind, (cls, payload) in _LIST_ATS.items():
+        print(f"== {kind}: stored postings don't use up the cap ==")
+        boards = {"a": 4, "b": 2}
+        seen = cls(BoardFake(payload, boards), 400, ["a", "b"]).fetch()
+        stored = {j.job_hash for j in seen
+                  if j.company == "A" and j.source_job_id != "a_3"}
+        jobs = cls(BoardFake(payload, boards), 2, ["a", "b"],
+                   is_known=stored.__contains__).fetch()
+        ids = [j.source_job_id for j in jobs]
+        check(ids == ["a_3", "b_0"], f"A's one new posting plus B's share ({ids})")
+
+
+def test_smartrecruiters_slug_share():
+    print("== SmartRecruiters: the cap is split fairly, no detail past a share ==")
+    f = SmartRecruitersFake({s: _sr_board(s, 5) for s in ("a", "b", "c")})
+    jobs = SmartRecruitersSource(f, cap=6, slugs=["a", "b", "c"]).fetch()
+    by = Counter(j.company for j in jobs)
+    check(by == {"A": 2, "B": 2, "C": 2}, f"2 jobs from each slug ({dict(by)})")
+    check(len(f.detail_calls) == 6, f"no detail calls past the cap ({len(f.detail_calls)})")
+
+    print("== SmartRecruiters: the list stops paging once the share is reached ==")
+    f = SmartRecruitersFake({s: _sr_board(s, 250) for s in ("a", "b")})
+    SmartRecruitersSource(f, cap=6, slugs=["a", "b"]).fetch()
+    check(f.list_calls == [("a", 0), ("b", 0)],
+          f"one list page per slug, not all 3 ({f.list_calls})")
+
+    print("== SmartRecruiters: a repeated id takes one detail call and one slot ==")
+    posts = _sr_board("a", 2)
+    f = SmartRecruitersFake({"a": [posts[0], posts[0], posts[1]]})
+    jobs = SmartRecruitersSource(f, cap=400, slugs=["a"]).fetch()
+    ids = [j.source_job_id for j in jobs]
+    check(ids == ["a0", "a1"], f"a0 once ({ids})")
+    check(len(f.detail_calls) == 2, f"one detail call for a0 ({len(f.detail_calls)})")
+
+
+def test_smartrecruiters_known_skip():
+    print("== SmartRecruiters: stored postings skip the detail call ==")
+    boards = {"a": _sr_board("a", 4), "b": _sr_board("b", 2)}
+    seen = SmartRecruitersSource(SmartRecruitersFake(boards), 400, ["a", "b"]).fetch()
+    stored = {j.job_hash for j in seen if j.company == "A" and j.source_job_id != "a3"}
+    f = SmartRecruitersFake(boards)
+    jobs = SmartRecruitersSource(f, 2, ["a", "b"], is_known=stored.__contains__).fetch()
+    ids = [j.source_job_id for j in jobs]
+    check(ids == ["a3", "b0"], f"A's one new posting plus B's share ({ids})")
+    check(len(f.detail_calls) == 2,
+          f"no detail call for a stored posting ({len(f.detail_calls)})")
+
+    print("== SmartRecruiters: stored postings are paged past, not counted ==")
+    boards = {"a": _sr_board("a", 250)}
+    stored = {j.job_hash for j in
+              SmartRecruitersSource(SmartRecruitersFake(boards), 120, ["a"]).fetch()}
+    f = SmartRecruitersFake(boards)
+    jobs = SmartRecruitersSource(f, 10, ["a"], is_known=stored.__contains__).fetch()
+    ids = [j.source_job_id for j in jobs]
+    check(ids == [f"a{n}" for n in range(120, 130)], f"the 10 after the stored 120 ({ids})")
+    check(len(f.detail_calls) == 10, f"detail calls for new ones only ({len(f.detail_calls)})")
+    check(f.list_calls == [("a", 0), ("a", 100)],
+          f"second page reached, third never requested ({f.list_calls})")
+
+    print("== SmartRecruiters: a posting stored under the fallback url is recognized ==")
+    # Its detail call failed last run, so it was stored as {slug}/{id}, which the
+    # postingUrl prediction never matches.
+    boards = {"a": _sr_board("a", 3)}
+    first = SmartRecruitersSource(SmartRecruitersFake(boards, failing={"a0"}),
+                                  400, ["a"]).fetch()
+    check(first[0].url == "https://jobs.smartrecruiters.com/a/a0",
+          f"a failed detail stores the fallback url ({first[0].url})")
+    f = SmartRecruitersFake(boards)
+    jobs = SmartRecruitersSource(f, 2, ["a"],
+                                 is_known={first[0].job_hash}.__contains__).fetch()
+    ids = [j.source_job_id for j in jobs]
+    check(ids == ["a1", "a2"], f"a0 skipped, not counted toward the cap ({ids})")
+    check(not any(u.endswith("/a0") for u in f.detail_calls),
+          f"no detail call for a0 ({f.detail_calls})")
+
+    print("== SmartRecruiters: the predicted hash matches real postingUrls ==")
+    # Real stored URLs (2026-10-11): {slug}/{id}-{slugified name}, no dash trimming.
+    tricky = [
+        ("744000135330850", " Client Executive – West Region",
+         "744000135330850--client-executive-west-region"),
+        ("744000100000001", "Data Scientist (Contract)",
+         "744000100000001-data-scientist-contract-"),
+        ("744000100000002", "[Expression of Interest] - Product Owner",
+         "744000100000002--expression-of-interest-product-owner"),
+        ("744000100000003", "Analista de Dados em Finanças Sênior",
+         "744000100000003-analista-de-dados-em-financas-senior"),
+        ("744000100000004", ".Net Engineer", "744000100000004--net-engineer"),
+    ]
+    boards = {"Experian": [(p, name, f"https://jobs.smartrecruiters.com/Experian/{tail}")
+                           for p, name, tail in tricky]}
+    first = SmartRecruitersSource(SmartRecruitersFake(boards), 400, ["Experian"]).fetch()
+    check([j.url for j in first] == [u for _, _, u in boards["Experian"]],
+          "urls are the detail's postingUrl")
+    f = SmartRecruitersFake(boards)
+    again = SmartRecruitersSource(f, 400, ["Experian"],
+                                  is_known={j.job_hash for j in first}.__contains__).fetch()
+    check(again == [] and f.detail_calls == [],
+          f"every tricky title recognized before its detail call ({len(f.detail_calls)})")
+
+
 def test_registry_passes_is_known():
-    print("== build_sources hands the stored-posting check to Workday ==")
+    print("== build_sources hands the stored-posting check to the multi-board adapters ==")
     def is_known(h):
         return False
-    cfg = {"ats": {"workday": _wd_tenants("a")}, "workday_searches": [""]}
-    srcs = [s for s in build_sources(cfg, is_known=is_known) if s.name == "workday"]
-    check(len(srcs) == 1 and srcs[0].is_known is is_known, "Workday gets is_known")
-    srcs = [s for s in build_sources(cfg) if s.name == "workday"]
-    check(srcs[0].is_known("anything") is False,
-          "without it every posting counts as new (Settings Verify path)")
+    multi = ("greenhouse", "lever", "ashby", "smartrecruiters", "workday")
+    cfg = {"ats": {"workday": _wd_tenants("a"), "greenhouse": ["a"], "lever": ["a"],
+                   "ashby": ["a"], "smartrecruiters": ["a"]},
+           "workday_searches": [""]}
+    srcs = [s for s in build_sources(cfg, is_known=is_known) if s.name in multi]
+    check(sorted(s.name for s in srcs) == sorted(multi), "all five built")
+    for s in srcs:
+        check(s.is_known is is_known, f"{s.name} gets is_known")
+    for s in build_sources(cfg):
+        if s.name in multi:
+            check(s.is_known("anything") is False,
+                  f"{s.name}: without it every posting counts as new (Settings Verify path)")
 
 
 def test_amazon():
@@ -366,6 +588,11 @@ def main() -> int:
     test_workday()
     test_workday_tenant_share()
     test_workday_known_skip()
+    test_list_ats_board_share()
+    test_list_ats_duplicates()
+    test_list_ats_known_skip()
+    test_smartrecruiters_slug_share()
+    test_smartrecruiters_known_skip()
     test_registry_passes_is_known()
     test_amazon()
     test_adzuna()

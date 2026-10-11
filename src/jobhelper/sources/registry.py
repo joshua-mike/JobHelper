@@ -29,8 +29,10 @@ _AGGREGATORS = {
 
 def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False,
                   is_known: Callable[[str], bool] | None = None) -> list[JobSource]:
-    """`is_known(job_hash)` says whether a posting is already stored; sources
-    with a per-posting detail call (Workday) use it to skip that call."""
+    """`is_known(job_hash)` says whether a posting is already stored. The
+    multi-board adapters (Greenhouse, Lever, Ashby, SmartRecruiters, Workday)
+    skip stored postings before they count toward the cap, and before the
+    detail call where there is one."""
     cap = int(sources_cfg.get("per_source_cap", 400))
     delay = float(sources_cfg.get("request_delay_seconds", 1.0))
     fetcher = Fetcher(delay=delay, use_cache=use_cache)
@@ -44,13 +46,17 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False,
 
     ats_cfg = sources_cfg.get("ats", {}) or {}
     if ats_cfg.get("greenhouse"):
-        sources.append(GreenhouseSource(fetcher, cap, list(ats_cfg["greenhouse"])))
+        sources.append(GreenhouseSource(fetcher, cap, list(ats_cfg["greenhouse"]),
+                                        is_known=is_known))
     if ats_cfg.get("lever"):
-        sources.append(LeverSource(fetcher, cap, list(ats_cfg["lever"])))
+        sources.append(LeverSource(fetcher, cap, list(ats_cfg["lever"]),
+                                   is_known=is_known))
     if ats_cfg.get("ashby"):
-        sources.append(AshbySource(fetcher, cap, list(ats_cfg["ashby"])))
+        sources.append(AshbySource(fetcher, cap, list(ats_cfg["ashby"]),
+                                   is_known=is_known))
     if ats_cfg.get("smartrecruiters"):
-        sources.append(SmartRecruitersSource(fetcher, cap, list(ats_cfg["smartrecruiters"])))
+        sources.append(SmartRecruitersSource(fetcher, cap, list(ats_cfg["smartrecruiters"]),
+                                             is_known=is_known))
     # Microsoft careers: the list items are SEARCH QUERIES, not company slugs.
     if ats_cfg.get("microsoft"):
         per_query = int(sources_cfg.get("microsoft_per_query", 40))
