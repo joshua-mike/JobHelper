@@ -21,15 +21,24 @@ CRITERIA = {
 }
 
 
-def job(company, location, remote_type="unknown"):
+def job(company, location, remote_type="unknown",
+        description="We need a software engineer."):
     return {
         "title": "Software Engineer",
-        "description_clean": "We need a software engineer.",
+        "description_clean": description,
         "company": company,
         "location": location,
         "candidate_location": location,
         "remote_type": remote_type,
     }
+
+
+# Pushes a sentence past the 400-character head the bare-word check reads.
+FILLER = "We need a software engineer to build and run our services. " * 10
+
+
+def deep(sentence):
+    return FILLER + sentence + " " + FILLER
 
 
 def check(cond, msg):
@@ -91,6 +100,60 @@ def main() -> int:
     strict = dict(CRITERIA, onsite_ok_companies=[])
     ok, _ = passes(job("xAI", "Palo Alto, CA"), strict)
     check(not ok, "xAI onsite rejected when list is empty")
+
+    print("== ITEM-46: a remote statement past char 400 confirms remote ==")
+    check(len(FILLER) > 400, "filler pushes the statement past the 400-char head")
+    for sentence, loc in [
+            ("This role is fully remote.", "United States"),               # Skylight
+            ("This is a remote, on-call role that provides flexibility.", "Reston, VA"),
+            ("Job Location: Remote work is authorized.", "Reston, VA"),    # ICF
+            ("Job Location: Remote (USA). Local candidates may visit.", "Reston, VA"),
+            ("Work is fully remote within the United States.", "Reston, VA"),
+            ("This position is fully remote within the U.S.; some travel.", "Reston, VA")]:
+        ok, reason = passes(job("Acme Corp", loc, description=deep(sentence)), CRITERIA)
+        check(ok, f"{sentence!r} @ {loc!r} kept (reason: {reason!r})")
+
+    print("== ITEM-46: negated statements are still rejected ==")
+    for sentence in [
+            "This is NOT a remote work opportunity.",
+            "This is a fully on-site position; hybrid or remote work is not available.",
+            "Must be onsite 4 days a week, remote work is not an option for this role.",
+            "This position requires being onsite and does not support remote or hybrid work.",
+            "This is not a fully remote role."]:
+        ok, reason = passes(job("Acme Corp", "Melbourne, FL", description=deep(sentence)), CRITERIA)
+        check(not ok and reason == "remote not confirmed", f"{sentence!r} rejected (reason: {reason!r})")
+
+    print("== ITEM-46: remote that isn't about this job's workplace is rejected ==")
+    for sentence in [
+            "Remote: If this position is listed as remote, there may be in-person days.",
+            "You will apply AI to problems in remote sensing and remote monitoring.",
+            "We are a remote-first company with a headquarters in Berlin.",
+            "We offer on-site, hybrid, or remote work options across teams.",
+            "This role is remote 2 days a week and in our office otherwise.",
+            "This position is remote, hybrid with weekly team days."]:
+        ok, reason = passes(job("Acme Corp", "San Diego, CA", description=deep(sentence)), CRITERIA)
+        check(not ok and reason == "remote not confirmed", f"{sentence!r} rejected (reason: {reason!r})")
+
+    print("== ITEM-46: a statement only counts for a US-located job ==")
+    for loc in ("", "Heredia, Heredia, CR"):
+        ok, reason = passes(job("Acme Corp", loc, description=deep("Location: Remote (Europe).")), CRITERIA)
+        check(not ok, f"'Remote (Europe)' @ {loc!r} rejected (reason: {reason!r})")
+
+    print("== ITEM-46: US 'City, ST' satisfies a US token on a confirmed-remote job ==")
+    ok, reason = passes(job("Acme Corp", "Reston, VA", remote_type="remote"), CRITERIA)
+    check(ok, f"remote @ 'Reston, VA' kept (reason: {reason!r})")
+    ok, reason = passes(job("Acme Corp", "Washington, D.C", remote_type="remote"), CRITERIA)
+    check(ok, f"remote @ 'Washington, D.C' kept (reason: {reason!r})")
+    ok, reason = passes(job("Acme Corp", "New York, NY", remote_type="hybrid"), CRITERIA)
+    check(not ok, f"hybrid @ 'New York, NY' still location-restricted (reason: {reason!r})")
+    ok, reason = passes(job("Acme Corp", "San Diego, CA",
+                            description="Ocean remote sensing for national defense."), CRITERIA)
+    check(not ok, f"head-only 'remote sensing' @ 'San Diego, CA' rejected (reason: {reason!r})")
+    ok, reason = passes(job("Acme Corp", "Toronto, ON", remote_type="remote"), CRITERIA)
+    check(not ok, f"remote @ 'Toronto, ON' still rejected (reason: {reason!r})")
+    no_us = dict(CRITERIA, allowed_location_tokens=["Anywhere"])
+    ok, reason = passes(job("Acme Corp", "Reston, VA", remote_type="remote"), no_us)
+    check(not ok, f"no US token configured => 'Reston, VA' rejected (reason: {reason!r})")
 
     print("\nALL REMOTE-FILTER CHECKS PASSED")
     return 0

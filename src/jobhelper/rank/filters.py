@@ -47,6 +47,47 @@ def _any_in(needles: list[str], haystack: str) -> bool:
     return any(n.lower() in h for n in needles if n)
 
 
+# Explicit statements that THIS job is remote, searched across the whole
+# description (ITEM-46). The bare-word check in passes() reads only the first
+# 400 characters, and further down a bare "remote" is as often "remote sensing",
+# a benefits menu ("on-site, hybrid or remote") or Booz Allen's boilerplate "If
+# this position is listed as remote" as a statement about the job. Skylight puts
+# "This role is fully remote" ~4,400 characters in, so every one of its roles
+# was rejected. `remote(?![\w-])` keeps "remote-first company" out.
+_REMOTE_STATEMENT = re.compile(
+    r"\b(?:this|the) (?:role|position|job|opportunity) is (?:a )?"
+    r"(?:fully |100% |completely )?remote(?![\w-])"
+    r"|\bthis is a (?:fully |100% |completely )?remote(?![\w-])(?! sensing)"
+    r"|\bremote work is (?:authorized|available|permitted|allowed|offered)\b"
+    r"|\b(?:fully|100%|completely) remote (?:role|position|job|opportunity)\b"
+    r"|\blocation\s*:\s*remote(?![\w-])"
+    r"|\bremote\s*[-,(]\s*(?:us\b|usa\b|u\.s\.|united states\b)"
+    r"|\bremote (?:with)?in the (?:us\b|u\.s\.|united states\b)",
+    re.I)
+# Within the statement's own sentence: a negation before it ("not a fully remote
+# role") or a weekly office schedule after it ("remote 2 days a week") voids it.
+_NEGATED = re.compile(r"(?:\bnot|\bno|\bnon|n't)\b", re.I)
+_OFFICE_DAYS = re.compile(r"\bhybrid\b|\b\d+ days? (?:a|per|each) week\b", re.I)
+_SENTENCE_END = re.compile(r"[.!?\n]")
+
+
+def _states_remote(desc: str) -> bool:
+    """Does the description explicitly say this job is remote, anywhere in it?"""
+    if "remote" not in desc.lower():  # cheap gate: the regex is ~3x slower
+        return False
+    for m in _REMOTE_STATEMENT.finditer(desc):
+        before = _SENTENCE_END.split(desc[max(0, m.start() - 60):m.start()])[-1]
+        after = _SENTENCE_END.split(desc[m.end():m.end() + 60])[0]
+        if not _NEGATED.search(before) and not _OFFICE_DAYS.search(after):
+            return True
+    return False
+
+
+# allowed_location_tokens that mean "the US": with one of them configured, a US
+# place the token can't substring-match ("Reston, VA") still counts as US.
+_US_TOKENS = frozenset({"us", "usa", "united states"})
+
+
 def passes(job: dict[str, Any], criteria: dict[str, Any]) -> tuple[bool, str]:
     """Return (passed, reason_if_rejected)."""
     title = (job.get("title") or "")
@@ -85,18 +126,31 @@ def passes(job: dict[str, Any], criteria: dict[str, Any]) -> tuple[bool, str]:
     company_exempt = (company.strip().lower() in onsite_ok
                       and _is_us_location(loc or job.get("candidate_location") or ""))
 
-    # Remote requirement
+    # An unknown-type job counts as remote when its title or location says so, or
+    # (ITEM-46) when a US-located job's description states it anywhere. The US
+    # check matters: postings with no location field say "Location: Remote
+    # (Europe)" just as plainly.
+    rtype = (job.get("remote_type") or "unknown").lower()
+    cand = (job.get("candidate_location") or "").strip()
+    said_remote = rtype == "unknown" and (
+        _any_in(["remote"], f"{title} {loc}")
+        or (_is_us_location(loc or cand) and _states_remote(desc)))
+
+    # Remote requirement. The bare-word read of the first 400 characters stays
+    # as a weaker signal (it also accepts "ocean remote sensing").
     if criteria.get("remote_required") and not company_exempt:
-        rtype = (job.get("remote_type") or "unknown").lower()
         if rtype == "onsite":
             return False, "onsite role"
-        if rtype == "unknown" and not _any_in(["remote"], f"{title} {loc} {desc[:400]}"):
+        if rtype == "unknown" and not said_remote and not _any_in(["remote"], desc[:400]):
             return False, "remote not confirmed"
 
-    # Candidate-location restriction
+    # Candidate-location restriction. On a confirmed-remote job a US "City, ST"
+    # here is the office the adapter copied in, so it satisfies a US token; on a
+    # hybrid job it's where you'd commute, so it doesn't.
     tokens = criteria.get("allowed_location_tokens", []) or []
-    cand = (job.get("candidate_location") or "").strip()
-    if tokens and cand and not company_exempt and not _any_in(tokens, cand):
+    us_ok = ((rtype == "remote" or said_remote) and _is_us_location(cand)
+             and any(t.strip().lower() in _US_TOKENS for t in tokens if t))
+    if tokens and cand and not company_exempt and not us_ok and not _any_in(tokens, cand):
         return False, f"location restricted to '{cand}'"
 
     # Salary floor (only when a salary is actually listed)
