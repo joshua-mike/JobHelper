@@ -230,13 +230,26 @@ export function SourcesSection() {
               }
             />
           </Field>
-          <Field label="Adzuna: results per query">
+          <Field label="Adzuna: results per query (50 per call)">
             <NumberInput
               value={draft.adzuna_per_query}
               min={1}
-              max={50}
+              max={1000}
               onChange={(v) =>
                 update((d) => void (d.adzuna_per_query = v ?? undefined))
+              }
+            />
+          </Field>
+          <Field
+            label="Adzuna: API calls per run"
+            hint="One per page; retries count too. Free key: 250/day, 2,500/month."
+          >
+            <NumberInput
+              value={draft.adzuna_max_calls}
+              min={1}
+              max={250}
+              onChange={(v) =>
+                update((d) => void (d.adzuna_max_calls = v ?? undefined))
               }
             />
           </Field>

@@ -28,8 +28,12 @@ class Fetcher:
 
     def __init__(self, delay: float = 1.0, timeout: float = 30.0,
                  use_cache: bool = False, max_retries: int = 3,
-                 host_fail_limit: int = 3) -> None:
+                 host_fail_limit: int = 3,
+                 host_delays: dict[str, float] | None = None) -> None:
         self.delay = delay
+        # host -> minimum seconds between its requests, for hosts with a rate
+        # limit stricter than `delay` (Adzuna: 25 hits/min, ITEM-40).
+        self.host_delays = dict(host_delays or {})
         self.use_cache = use_cache
         self.max_retries = max_retries
         self.host_fail_limit = host_fail_limit
@@ -61,7 +65,8 @@ class Fetcher:
         host = urlsplit(url).netloc
         last = self._last.get(host)
         if last is not None:
-            wait = self.delay - (time.monotonic() - last)
+            delay = max(self.delay, self.host_delays.get(host, 0.0))
+            wait = delay - (time.monotonic() - last)
             if wait > 0:
                 time.sleep(wait)
         self._last[host] = time.monotonic()

@@ -115,12 +115,19 @@ def run(use_cache: bool = False) -> dict:
     counts = {"sourced": 0, "new_jobs": 0, "filtered": 0, "scored": 0,
               "proposed": 0, "errors": 0}
 
+    # The previous COMPLETED run's start (this run is recorded but unfinished, so
+    # excluded): Adzuna pages back to it (ITEM-40); the judge shortlist treats
+    # jobs first seen after it as fresh.
+    prev_run_started = db.previous_run_started_at(conn, run_id)
+
     # ---- 1. SOURCE + 2. DEDUPE ----
     duplicates = 0  # content-dups parked at ingest (run_log has no column)
     def is_known(job_hash: str) -> bool:
         return db.job_hash_exists(conn, job_hash)
 
-    for source in build_sources(sources_cfg, use_cache=use_cache, is_known=is_known):
+    for source in build_sources(sources_cfg, use_cache=use_cache, is_known=is_known,
+                                last_run_started=prev_run_started,
+                                max_age_days=criteria.get("max_age_days")):
         try:
             jobs = source.fetch()
         except Exception as exc:
@@ -185,7 +192,7 @@ def run(use_cache: bool = False) -> dict:
         pool = db.jobs_by_status(conn, "ranked", "scored")
         unjudged = [r for r in pool if r["llm_score"] is None]
         shortlist = _shortlist_fresh_first(
-            unjudged, shortlist_n, db.previous_run_started_at(conn, run_id))
+            unjudged, shortlist_n, prev_run_started)
         for row in shortlist:
             try:
                 res = judge.score(dict(row))

@@ -21,9 +21,9 @@ from jobhelper.sources.base import Fetcher
 URL = "https://caci.wd1.myworkdayjobs.com/wday/cxs/caci/External/jobs"
 
 
-def _fetcher(handler, **kw) -> Fetcher:
+def _fetcher(handler, delay: float = 0.0, **kw) -> Fetcher:
     """A Fetcher whose client is backed by a mock transport, with sleeps disabled."""
-    f = Fetcher(delay=0.0, use_cache=False, **kw)
+    f = Fetcher(delay=delay, use_cache=False, **kw)
     f._client = httpx.Client(transport=httpx.MockTransport(handler),
                              follow_redirects=True)
     return f
@@ -144,6 +144,42 @@ def test_client_error_still_fails_fast():
     print("OK  404 still fails fast and does not trip the breaker")
 
 
+def test_host_delay_overrides_default():
+    """ITEM-40: a host in host_delays is spaced by its own delay (Adzuna's
+    per-minute limit); every other host keeps the default delay."""
+    adzuna = "https://api.adzuna.com/v1/api/jobs/us/search/1"
+    slept: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": []})
+
+    f = _fetcher(handler, delay=1.0, host_delays={"api.adzuna.com": 2.5})
+    real_sleep = base.time.sleep
+    base.time.sleep = slept.append
+    try:
+        f.get_json(adzuna)
+        f.get_json(adzuna)
+        f.get_json(URL)
+        f.get_json(URL)
+    finally:
+        base.time.sleep = real_sleep
+    assert len(slept) == 2, slept
+    assert 2.0 < slept[0] <= 2.5, f"Adzuna should wait ~2.5s, waited {slept[0]}"
+    assert 0.5 < slept[1] <= 1.0, f"other hosts keep the 1.0s default, waited {slept[1]}"
+
+    # A host delay below the default never shortens the wait.
+    slept.clear()
+    f = _fetcher(handler, delay=1.0, host_delays={"api.adzuna.com": 0.1})
+    base.time.sleep = slept.append
+    try:
+        f.get_json(adzuna)
+        f.get_json(adzuna)
+    finally:
+        base.time.sleep = real_sleep
+    assert len(slept) == 1 and 0.5 < slept[0] <= 1.0, slept
+    print("OK  per-host delay spaces that host only")
+
+
 if __name__ == "__main__":
     base.time.sleep = lambda *_a, **_kw: None  # no real backoff waits in tests
     test_cookies_cleared_between_attempts()
@@ -151,4 +187,5 @@ if __name__ == "__main__":
     test_breaker_opens_after_consecutive_failures()
     test_breaker_is_per_host_and_resets_on_success()
     test_client_error_still_fails_fast()
+    test_host_delay_overrides_default()
     print("ALL FETCHER RESILIENCE CHECKS PASSED")

@@ -234,6 +234,7 @@ export interface SourcesData {
   amazon_per_query?: number
   usajobs_per_query?: number
   adzuna_per_query?: number
+  adzuna_max_calls?: number
   workday_searches?: string[]
   workday_per_search?: number
   [key: string]: unknown

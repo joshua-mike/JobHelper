@@ -188,12 +188,24 @@ def main() -> int:
         ({"ats": {"workday": [{"tenant": "a", "dc": "wd1"}]}}, SourcesConfig,
          "workday row missing site/company"),
         ({"request_delay_seconds": -1}, SourcesConfig, "negative delay"),
+        ({"adzuna_per_query": 1001}, SourcesConfig, "adzuna_per_query > 1000"),
+        ({"adzuna_max_calls": 0}, SourcesConfig, "adzuna_max_calls < 1"),
+        ({"adzuna_max_calls": 251}, SourcesConfig,
+         "adzuna_max_calls > 250 (the key's daily allowance)"),
     ]:
         try:
             model.model_validate(bad)
             check(False, f"rejects {why}")
         except ValidationError:
             check(True, f"rejects {why}")
+
+    # ITEM-40: Adzuna pages 50 per call, so per_query may exceed one page; the
+    # call budget may go up to one day's allowance.
+    for per_query, max_calls in ((500, 75), (1000, 250)):
+        az = SourcesConfig.model_validate({"adzuna_per_query": per_query,
+                                           "adzuna_max_calls": max_calls})
+        check(az.adzuna_per_query == per_query and az.adzuna_max_calls == max_calls,
+              f"accepts adzuna_per_query={per_query}, adzuna_max_calls={max_calls}")
 
     ok = CriteriaConfig.model_validate(st.load_data("criteria"))
     check(ok is not None, "real criteria file validates")

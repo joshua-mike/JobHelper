@@ -428,7 +428,8 @@ src/jobhelper/
 │   ├── microsoft.py        Eightfold "pcsx" API; items are SEARCH QUERIES
 │   ├── amazon.py           amazon.jobs search API; items are SEARCH QUERIES
 │   ├── usajobs.py          KEYED (USAJOBS_API_KEY); federal, remote-scoped
-│   └── adzuna.py           KEYED (ADZUNA_APP_ID/KEY); truncated descriptions
+│   └── adzuna.py           KEYED (ADZUNA_APP_ID/KEY); truncated descriptions;
+│                           pages back to the last run under a call budget
 │
 ├── rank/
 │   ├── filters.py          passes() — the deterministic hard filter
@@ -679,6 +680,20 @@ stored (ITEM-37, ITEM-39). A board fetched whole goes through
 call per posting goes through `JobSource._share_cap`: predict the `job_hash`
 from the list entry, skip stored postings before the detail call, and carry
 unused share forward.
+
+A paged search API is the third case (Adzuna, ITEM-40). Newest-first pages of
+50 cover only hours of a busy query, so each query pages back to a cutoff: the
+previous completed run's start minus a 12h indexing overlap
+(`build_sources(last_run_started=..., max_age_days=...)`, which the pipeline
+fills from `db.previous_run_started_at()` and `criteria.max_age_days`). It
+skips stored postings and repeats across queries but does NOT take
+`per_source_cap`: a share of it ran out after ~2 pages, the next run's cutoff
+then moved past the unread rest of the day, and those ads were never seen.
+Instead `adzuna_per_query` bounds rows read per query and `adzuna_max_calls`
+the API calls (pages) per run, split fairly across queries with unused calls
+carried forward; that budget is what keeps the key under its daily allowance.
+`Fetcher(host_delays=...)` spaces one host's calls further apart than
+`request_delay_seconds` (Adzuna: 2.5s, for 25 hits/min).
 
 ### Add a hard-filter rule
 

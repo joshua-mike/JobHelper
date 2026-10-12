@@ -212,7 +212,8 @@ class SourcesConfig(_Permissive):
     microsoft_per_query: int | None = Field(None, ge=1, le=500)
     amazon_per_query: int | None = Field(None, ge=1, le=500)
     usajobs_per_query: int | None = Field(None, ge=1, le=500)
-    adzuna_per_query: int | None = Field(None, ge=1, le=50)
+    adzuna_per_query: int | None = Field(None, ge=1, le=1000)  # paged 50 per call
+    adzuna_max_calls: int | None = Field(None, ge=1, le=250)  # key: 250/day
     workday_searches: list[str] | None = None
     workday_per_search: int | None = Field(None, ge=1, le=500)
 
