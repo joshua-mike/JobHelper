@@ -13,12 +13,20 @@ from ..util import get_logger
 
 log = get_logger()
 
-# granite-small-r2 reads whole JDs (8192-token context); on this user's judged
+# granite-small-r2 can read whole JDs (8192-token context); on this user's judged
 # jobs it agreed with the LLM judge at rho=0.41 vs all-MiniLM-L6-v2's 0.05.
 # Symmetric similarity — no query prefix needed. Scores run ~0.85-0.90 for good
 # matches (vs MiniLM's ~0.5-0.7); all downstream use is rank-based so the scale
 # doesn't matter, but don't mix scores from different models in one pool.
 _MODEL_ID = "ibm-granite/granite-embedding-small-english-r2"
+
+# JDs are cut to their first 512 tokens before embedding. CPU cost grows steeply
+# with length, and a third of JDs run 1,500-2,700 tokens: the cut makes scoring
+# ~2.7x faster. Measured 2026-11-14 on 150 judged jobs, the cut scores agree
+# with the LLM judge as well as whole-JD scores do (rho 0.38 vs 0.37) and keep
+# 13 of the top 15. The profile is still embedded whole.
+_JD_MAX_TOKENS = 512
+_BATCH_SIZE = 8  # no faster than one at a time on CPU; just one call
 
 _WORD = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.\-]{1,}")
 _STOP = {
@@ -65,6 +73,8 @@ class Scorer:
             self._model = SentenceTransformer(_MODEL_ID)
             self._profile_vec = self._model.encode(profile_text,
                                                    normalize_embeddings=True)
+            # The profile above is embedded whole; JDs are cut to _JD_MAX_TOKENS.
+            self._model.max_seq_length = _JD_MAX_TOKENS
             self._mode = "semantic"
             log.info("Scorer: semantic mode (%s)", _MODEL_ID)
         except Exception as exc:
@@ -77,8 +87,15 @@ class Scorer:
         return self._mode
 
     def score(self, jd_text: str) -> float:
+        return self.score_many([jd_text])[0]
+
+    def score_many(self, jd_texts: list[str]) -> list[float]:
+        """Scores for a batch of JDs, in order. One encode call for the lot."""
+        if not jd_texts:
+            return []
         if self._mode == "semantic" and self._model is not None:
-            import numpy as np  # noqa: local import; only when semantic
-            vec = self._model.encode(jd_text or "", normalize_embeddings=True)
-            return float(np.dot(self._profile_vec, vec))
-        return _lexical_cosine(self.profile_text, jd_text)
+            vecs = self._model.encode([t or "" for t in jd_texts],
+                                      batch_size=_BATCH_SIZE,
+                                      normalize_embeddings=True)
+            return [float(s) for s in vecs @ self._profile_vec]
+        return [_lexical_cosine(self.profile_text, t) for t in jd_texts]

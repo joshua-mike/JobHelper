@@ -8,6 +8,7 @@ Run:  python tests/test_sources_parsing.py
 from __future__ import annotations
 
 import logging
+import threading
 import os
 import sys
 from collections import Counter
@@ -387,6 +388,27 @@ def test_workday_tenant_share():
                          searches=[""], per_search=25).fetch()
     by = Counter(j.company for j in jobs)
     check(by == {"A": 1, "B": 2, "C": 3}, f"A 1, B 5//2, C the rest ({dict(by)})")
+
+
+def test_workday_tenants_concurrent():
+    print("== Workday: tenants are crawled at the same time ==")
+    boards = {t: [f"/job/Remote/{t}_0"] for t in ("a", "b", "c")}
+    f = WorkdayFake(boards)
+    # Each tenant's one list call waits here until all three are in flight; a
+    # sequential crawl would time out, fail the search and return no jobs.
+    together = threading.Barrier(3, timeout=5)
+    listing = f.post_json
+
+    def post_json(url, json_body, headers=None):
+        together.wait()
+        return listing(url, json_body, headers)
+
+    f.post_json = post_json
+    jobs = WorkdaySource(f, cap=400, tenants=_wd_tenants("a", "b", "c"),
+                         searches=[""], per_search=25).fetch()
+    check([j.company for j in jobs] == ["A", "B", "C"],
+          f"all three crawled together, results in sources.yaml order "
+          f"({[j.company for j in jobs]})")
 
 
 def test_workday_known_skip():
@@ -865,6 +887,7 @@ def main() -> int:
     test_smartrecruiters()
     test_workday()
     test_workday_tenant_share()
+    test_workday_tenants_concurrent()
     test_workday_known_skip()
     test_list_ats_board_share()
     test_list_ats_duplicates()

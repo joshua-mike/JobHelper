@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import threading
 from collections import defaultdict
 from typing import Any
 
@@ -89,6 +90,7 @@ class LLM:
         self._client = None
         # model -> {calls, input_tokens, output_tokens, cache_*}
         self.usage: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self._usage_lock = threading.Lock()  # calls run on worker threads
         if _SDK and os.environ.get("ANTHROPIC_API_KEY"):
             try:
                 self._client = anthropic.Anthropic()
@@ -111,10 +113,11 @@ class LLM:
     def _record(self, msg: Any, model: str, label: str) -> None:
         u = msg.usage
         counts = {f: getattr(u, f, 0) or 0 for f in _USAGE_FIELDS}
-        totals = self.usage[model]
-        totals["calls"] += 1
-        for f, n in counts.items():
-            totals[f] += n
+        with self._usage_lock:
+            totals = self.usage[model]
+            totals["calls"] += 1
+            for f, n in counts.items():
+                totals[f] += n
         log.info("llm %s (%s): in=%d out=%d cache_read=%d cache_write=%d stop=%s",
                  label, model, counts["input_tokens"], counts["output_tokens"],
                  counts["cache_read_input_tokens"],

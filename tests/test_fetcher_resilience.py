@@ -9,6 +9,7 @@ Run:  python tests/test_fetcher_resilience.py
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -180,6 +181,47 @@ def test_host_delay_overrides_default():
     print("OK  per-host delay spaces that host only")
 
 
+def test_threads_on_one_host_stay_spaced():
+    """Sources are fetched concurrently: threads sharing a host must queue up
+    `delay` apart, not all send at once."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    slept: list[float] = []
+    f = _fetcher(handler, delay=1.0)
+    real_sleep = base.time.sleep
+    base.time.sleep = slept.append
+    try:
+        threads = [threading.Thread(target=f.get_json, args=(URL,)) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        base.time.sleep = real_sleep
+    # One thread sends at once; the others wait ~1s, ~2s and ~3s for their slots.
+    waits = sorted(slept)
+    assert len(waits) == 3, waits
+    for want, got in zip((1.0, 2.0, 3.0), waits):
+        assert want - 0.5 < got <= want, f"slots should be 1s apart, waited {waits}"
+    print("OK  threads sharing a host stay spaced")
+
+
+def test_client_stores_no_cookies():
+    """The shared client's own jar refuses cookies, so one thread's response
+    can't pin another thread's request to a backend."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={},
+                              headers={"set-cookie": "__cflb=pin; Path=/"})
+
+    f = Fetcher(delay=0.0, use_cache=False)
+    f._client = httpx.Client(transport=httpx.MockTransport(handler),
+                             cookies=f._client.cookies.jar)
+    f.get_json(URL)
+    assert len(f._client.cookies.jar) == 0, list(f._client.cookies.jar)
+    print("OK  the client's jar stores no cookies")
+
+
 if __name__ == "__main__":
     base.time.sleep = lambda *_a, **_kw: None  # no real backoff waits in tests
     test_cookies_cleared_between_attempts()
@@ -188,4 +230,6 @@ if __name__ == "__main__":
     test_breaker_is_per_host_and_resets_on_success()
     test_client_error_still_fails_fast()
     test_host_delay_overrides_default()
+    test_threads_on_one_host_stay_spaced()
+    test_client_stores_no_cookies()
     print("ALL FETCHER RESILIENCE CHECKS PASSED")

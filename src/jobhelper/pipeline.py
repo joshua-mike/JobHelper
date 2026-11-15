@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from . import db
@@ -24,6 +25,11 @@ from .tailor import (build_ats_report, build_resume, cover_letter,
 from .util import RESUME_DIR, age_days, get_logger, parse_date
 
 log = get_logger()
+
+# Network waits dominate a run, so sources are fetched, and Claude calls made,
+# a few at a time. The Fetcher still spaces requests per host.
+FETCH_WORKERS = 8
+LLM_WORKERS = 4
 
 
 def _safe(text: str, n: int = 48) -> str:
@@ -102,6 +108,28 @@ def _shortlist_fresh_first(unjudged: list, n: int,
     return (fresh + backlog)[:n]
 
 
+def _judge_all(judge: Judge, shortlist: list) -> list[dict | None]:
+    """Judge every shortlisted job; results line up with `shortlist`, None where
+    a call failed.
+
+    The first job is judged alone so its call writes the shared profile to the
+    prompt cache; the rest then run concurrently and read it. Started together,
+    every call would miss the cache and pay to write it."""
+    def score(row) -> dict | None:
+        try:
+            return judge.score(dict(row))
+        except Exception as exc:
+            log.warning("judge failed for %s: %s", row["id"], exc)
+            return None
+
+    if not shortlist:
+        return []
+    first = score(shortlist[0])
+    with ThreadPoolExecutor(max_workers=LLM_WORKERS,
+                            thread_name_prefix="judge") as pool:
+        return [first, *pool.map(score, shortlist[1:])]
+
+
 def run(use_cache: bool = False) -> dict:
     load_env()
     profile = load_profile()
@@ -122,29 +150,37 @@ def run(use_cache: bool = False) -> dict:
 
     # ---- 1. SOURCE + 2. DEDUPE ----
     duplicates = 0  # content-dups parked at ingest (run_log has no column)
-    def is_known(job_hash: str) -> bool:
-        return db.job_hash_exists(conn, job_hash)
-
-    for source in build_sources(sources_cfg, use_cache=use_cache, is_known=is_known,
-                                last_run_started=prev_run_started,
-                                max_age_days=criteria.get("max_age_days")):
-        try:
-            jobs = source.fetch()
-        except Exception as exc:
-            log.error("source %s failed: %s", source.name, exc)
-            counts["errors"] += 1
-            continue
-        for raw in jobs:
-            counts["sourced"] += 1
+    # Sources fetch on worker threads, which can't use this connection, so the
+    # stored-posting check reads a snapshot of the hashes taken before any fetch.
+    known_hashes = db.all_job_hashes(conn)
+    sources = build_sources(sources_cfg, use_cache=use_cache,
+                            is_known=known_hashes.__contains__,
+                            last_run_started=prev_run_started,
+                            max_age_days=criteria.get("max_age_days"))
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS,
+                            thread_name_prefix="fetch") as pool:
+        fetches = [pool.submit(source.fetch) for source in sources]
+        # Insert in sources.yaml order, not completion order: which copy of a
+        # cross-posted job is kept (the rest park as 'duplicate') must not
+        # depend on which site answered first.
+        for source, fetch in zip(sources, fetches):
             try:
-                inserted = db.insert_job(conn, raw)
-                if inserted == "duplicate":
-                    duplicates += 1
-                elif inserted:
-                    counts["new_jobs"] += 1
+                jobs = fetch.result()
             except Exception as exc:
-                log.warning("insert failed: %s", exc)
-        conn.commit()
+                log.error("source %s failed: %s", source.name, exc)
+                counts["errors"] += 1
+                continue
+            for raw in jobs:
+                counts["sourced"] += 1
+                try:
+                    inserted = db.insert_job(conn, raw)
+                    if inserted == "duplicate":
+                        duplicates += 1
+                    elif inserted:
+                        counts["new_jobs"] += 1
+                except Exception as exc:
+                    log.warning("insert failed: %s", exc)
+            conn.commit()
     log.info("sourced=%d new=%d duplicate=%d",
              counts["sourced"], counts["new_jobs"], duplicates)
 
@@ -175,11 +211,12 @@ def run(use_cache: bool = False) -> dict:
     # ---- 4. SCORE (embeddings/lexical recall, then optional LLM judge) ----
     scorer = Scorer(profile_comparison_text(profile),
                     prefer=criteria.get("scoring", "auto"))
-    pool = db.jobs_by_status(conn, "ranked", "scored")
-    for row in pool:
-        if row["embed_score"] is None:
-            s = scorer.score(row["description_clean"] or row["title"] or "")
-            db.update_job(conn, row["id"], embed_score=s)
+    unscored = [r for r in db.jobs_by_status(conn, "ranked", "scored")
+                if r["embed_score"] is None]
+    scores = scorer.score_many(
+        [r["description_clean"] or r["title"] or "" for r in unscored])
+    for row, s in zip(unscored, scores):
+        db.update_job(conn, row["id"], embed_score=s)
     conn.commit()
 
     llm = LLM()
@@ -193,12 +230,7 @@ def run(use_cache: bool = False) -> dict:
         unjudged = [r for r in pool if r["llm_score"] is None]
         shortlist = _shortlist_fresh_first(
             unjudged, shortlist_n, prev_run_started)
-        for row in shortlist:
-            try:
-                res = judge.score(dict(row))
-            except Exception as exc:
-                log.warning("judge failed for %s: %s", row["id"], exc)
-                res = None
+        for row, res in zip(shortlist, _judge_all(judge, shortlist)):
             if res:
                 counts["scored"] += 1
                 db.update_job(
@@ -241,60 +273,69 @@ def run(use_cache: bool = False) -> dict:
     tailor_model = criteria.get("tailor_model", "claude-opus-5-5")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     name_slug = _safe((profile.get("identity", {}) or {}).get("full_name", "Resume"))
-    for row in proposals:
-        job = dict(row)
-        try:
-            # Keyword table first (checker independent of writer). Returns
-            # None in no-LLM mode or on a dead extraction call — which must
-            # not cost the day's proposals, so we tailor without it.
-            keywords = extract_keywords(llm, tailor_model, job)
-            # Role-family emphasis: pure-code selection from JD signals.
-            variant_name, variant_cfg, variant_signals = select_variant(
-                profile, job)
-            content, notes, missing_required = tailor_resume(
-                llm, tailor_model, profile, job, keywords=keywords,
-                variant_name=variant_name, variant=variant_cfg)
 
-            # Job id is the folder; the filename is recruiter-facing.
-            fname = f"{name_slug}_{_safe(job.get('title') or 'Role', 40)}.docx"
-            resume_path = RESUME_DIR / today / str(row["id"]) / fname
-            build_resume(content, resume_path)
+    def tailor_one(job: dict) -> dict:
+        """Tailor one proposal and return its DB fields. Runs on a worker
+        thread, so it writes nothing shared: the DB update happens back in
+        the loop below."""
+        # Keyword table first (checker independent of writer). Returns
+        # None in no-LLM mode or on a dead extraction call — which must
+        # not cost the day's proposals, so we tailor without it.
+        keywords = extract_keywords(llm, tailor_model, job)
+        # Role-family emphasis: pure-code selection from JD signals.
+        variant_name, variant_cfg, variant_signals = select_variant(
+            profile, job)
+        content, notes, missing_required = tailor_resume(
+            llm, tailor_model, profile, job, keywords=keywords,
+            variant_name=variant_name, variant=variant_cfg)
 
-            # Verify the artifact, not the dict. Structural problems mean the
-            # resume is unusable — take the existing per-job error path.
-            failures = structural_failures(resume_path, content)
-            if failures:
-                raise RuntimeError("resume failed verification: "
-                                   + "; ".join(failures))
+        # Job id is the folder; the filename is recruiter-facing.
+        fname = f"{name_slug}_{_safe(job.get('title') or 'Role', 40)}.docx"
+        resume_path = RESUME_DIR / today / str(job["id"]) / fname
+        build_resume(content, resume_path)
 
-            variant_blob = ({"name": variant_name, "signals": variant_signals}
-                            if variant_name else None)
-            if keywords:
-                report = build_ats_report(
-                    keywords, extract_docx_text(resume_path), missing_required,
-                    distinctive_texts=distinctive_achievements(profile),
-                    variant=variant_blob)
-            elif llm.available:
-                report = {"error": "keyword extraction failed"}
-            else:
-                report = None  # no-LLM mode: no coverage to report
+        # Verify the artifact, not the dict. Structural problems mean the
+        # resume is unusable — take the existing per-job error path.
+        failures = structural_failures(resume_path, content)
+        if failures:
+            raise RuntimeError("resume failed verification: "
+                               + "; ".join(failures))
 
-            cl = cover_letter(llm, tailor_model, profile, job)
-            ans = screening_answers(profile)
-            fields: dict = dict(
-                status="tailored",
-                tailored_resume_path=str(resume_path),
-                cover_letter_text=cl or "",
-                change_log=notes,
-                screening_answers=ans,
-            )
-            if report is not None:
-                fields["ats_report"] = report
-            db.update_job(conn, row["id"], **fields)
-        except Exception as exc:
-            counts["errors"] += 1
-            log.error("tailor failed for %s: %s", row["id"], exc)
-            db.update_job(conn, row["id"], status="error", error_text=str(exc))
+        variant_blob = ({"name": variant_name, "signals": variant_signals}
+                        if variant_name else None)
+        if keywords:
+            report = build_ats_report(
+                keywords, extract_docx_text(resume_path), missing_required,
+                distinctive_texts=distinctive_achievements(profile),
+                variant=variant_blob)
+        elif llm.available:
+            report = {"error": "keyword extraction failed"}
+        else:
+            report = None  # no-LLM mode: no coverage to report
+
+        cl = cover_letter(llm, tailor_model, profile, job)
+        ans = screening_answers(profile)
+        fields: dict = dict(
+            status="tailored",
+            tailored_resume_path=str(resume_path),
+            cover_letter_text=cl or "",
+            change_log=notes,
+            screening_answers=ans,
+        )
+        if report is not None:
+            fields["ats_report"] = report
+        return fields
+
+    with ThreadPoolExecutor(max_workers=LLM_WORKERS,
+                            thread_name_prefix="tailor") as pool:
+        tailoring = [pool.submit(tailor_one, dict(row)) for row in proposals]
+        for row, done in zip(proposals, tailoring):
+            try:
+                db.update_job(conn, row["id"], **done.result())
+            except Exception as exc:
+                counts["errors"] += 1
+                log.error("tailor failed for %s: %s", row["id"], exc)
+                db.update_job(conn, row["id"], status="error", error_text=str(exc))
     conn.commit()
 
     # ---- 7. DIGEST ----

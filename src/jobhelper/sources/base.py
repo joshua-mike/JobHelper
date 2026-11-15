@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from abc import ABC, abstractmethod
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from typing import Any, Callable, Sequence
 from urllib.parse import urlsplit
 
@@ -24,7 +26,10 @@ _RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 class Fetcher:
-    """Shared HTTP client with per-host throttling, retry/backoff and a breaker."""
+    """Shared HTTP client with per-host throttling, retry/backoff and a breaker.
+
+    Safe to share across threads: sources are fetched concurrently, and requests
+    to any one host stay spaced by its delay however many threads send them."""
 
     def __init__(self, delay: float = 1.0, timeout: float = 30.0,
                  use_cache: bool = False, max_retries: int = 3,
@@ -39,37 +44,47 @@ class Fetcher:
         self.host_fail_limit = host_fail_limit
         self._last: dict[str, float] = {}
         self._fails: dict[str, int] = {}
+        self._lock = threading.Lock()  # guards _last and _fails
+        # Every source is keyless, so the jar stores nothing: a cookie could only
+        # pin us to one backend (see _send), and threads share this client.
         self._client = httpx.Client(
             timeout=timeout,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             follow_redirects=True,
+            cookies=CookieJar(policy=DefaultCookiePolicy(allowed_domains=[])),
         )
 
     def close(self) -> None:
         self._client.close()
 
     def _host_is_down(self, host: str) -> bool:
-        return self._fails.get(host, 0) >= self.host_fail_limit
+        with self._lock:
+            return self._fails.get(host, 0) >= self.host_fail_limit
 
     def _record(self, host: str, ok: bool) -> None:
         """Track consecutive give-ups per host so one dead tenant can't eat the run."""
-        if ok:
-            self._fails[host] = 0
-            return
-        self._fails[host] = self._fails.get(host, 0) + 1
-        if self._fails[host] == self.host_fail_limit:
+        with self._lock:
+            if ok:
+                self._fails[host] = 0
+                return
+            self._fails[host] = fails = self._fails.get(host, 0) + 1
+        if fails == self.host_fail_limit:
             log.warning("%s: %d consecutive failures, skipping this host for the "
                         "rest of the run", host, self.host_fail_limit)
 
     def _throttle(self, url: str) -> None:
+        """Wait for this host's next send slot. The slot is claimed under the
+        lock, so threads sharing a host queue up `delay` apart instead of all
+        sending at once; the sleep itself happens outside it."""
         host = urlsplit(url).netloc
-        last = self._last.get(host)
-        if last is not None:
-            delay = max(self.delay, self.host_delays.get(host, 0.0))
-            wait = delay - (time.monotonic() - last)
-            if wait > 0:
-                time.sleep(wait)
-        self._last[host] = time.monotonic()
+        delay = max(self.delay, self.host_delays.get(host, 0.0))
+        with self._lock:
+            now = time.monotonic()
+            last = self._last.get(host)
+            slot = now if last is None else max(now, last + delay)
+            self._last[host] = slot
+        if slot > now:
+            time.sleep(slot - now)
 
     def _cache_path(self, url: str, params: dict | None):
         key = stable_hash(url, json.dumps(params or {}, sort_keys=True))
@@ -102,7 +117,8 @@ class Fetcher:
             # wday_vps_cookie/PLAY_SESSION. Replaying those sends every retry back to
             # the same (possibly sick) instance, so a transient backend failure looks
             # like a total outage. Every source here is keyless, so drop the jar each
-            # attempt and let the load balancer route us somewhere healthy.
+            # attempt and let the load balancer route us somewhere healthy. (The
+            # client's own jar already refuses cookies; this covers a swapped-in one.)
             self._client.cookies.clear()
             try:
                 if method == "POST":
@@ -139,6 +155,21 @@ class Fetcher:
         self._record(host, False)
         raise RuntimeError(f"{method} failed after {self.max_retries} tries: "
                            f"{url} ({last_err})") from last_err
+
+
+def fair_shares(sizes: Sequence[int], cap: int) -> list[int]:
+    """Split `cap` max-min fairly over boards holding `sizes` new postings.
+
+    Boards are served smallest first, each taking its postings or an equal
+    share of what's left, whichever is less: what a small board doesn't need
+    goes to the bigger ones wherever they sit in sources.yaml (ITEM-39)."""
+    kept = [0] * len(sizes)
+    left = cap
+    by_size = sorted(range(len(sizes)), key=lambda i: sizes[i])
+    for n, i in enumerate(by_size):
+        kept[i] = min(sizes[i], left // (len(by_size) - n))
+        left -= kept[i]
+    return kept
 
 
 def _retry_after(resp: httpx.Response, attempt: int) -> float:
@@ -220,12 +251,7 @@ class JobSource(ABC):
                     new.append(job)
             fetched.append((board, new, skipped))
 
-        kept = [0] * len(fetched)
-        left = self.cap
-        by_size = sorted(range(len(fetched)), key=lambda i: len(fetched[i][1]))
-        for n, i in enumerate(by_size):
-            kept[i] = min(len(fetched[i][1]), left // (len(by_size) - n))
-            left -= kept[i]
+        kept = fair_shares([len(new) for _, new, _ in fetched], self.cap)
 
         jobs: list[RawJob] = []
         for (board, new, skipped), k in zip(fetched, kept):

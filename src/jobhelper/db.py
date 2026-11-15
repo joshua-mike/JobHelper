@@ -212,6 +212,12 @@ def job_hash_exists(conn: sqlite3.Connection, job_hash: str) -> bool:
                         (job_hash,)).fetchone() is not None
 
 
+def all_job_hashes(conn: sqlite3.Connection) -> set[str]:
+    """Every stored job_hash. The pipeline fetches sources on worker threads,
+    which can't share this connection, so they check a snapshot instead."""
+    return {row[0] for row in conn.execute("SELECT job_hash FROM jobs")}
+
+
 def get_job(conn: sqlite3.Connection, job_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
 
