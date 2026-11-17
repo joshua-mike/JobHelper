@@ -18,6 +18,7 @@ from .remoteok import RemoteOKSource
 from .remotive import RemotiveSource
 from .smartrecruiters import SmartRecruitersSource
 from .usajobs import USAJobsSource
+from .workday import SHARED_LIMIT_DOMAIN as WORKDAY_DOMAIN
 from .workday import WorkdaySource
 
 log = get_logger()
@@ -44,8 +45,10 @@ def build_sources(sources_cfg: dict[str, Any], use_cache: bool = False,
     cap = int(sources_cfg.get("per_source_cap", 400))
     delay = float(sources_cfg.get("request_delay_seconds", 1.0))
     # Adzuna's key allows 25 hits/min, stricter than `delay` once it pages.
+    # Workday counts requests across all its tenants, so they are paced as one.
     fetcher = Fetcher(delay=delay, use_cache=use_cache,
-                      host_delays={ADZUNA_HOST: ADZUNA_MIN_INTERVAL})
+                      host_delays={ADZUNA_HOST: ADZUNA_MIN_INTERVAL},
+                      shared_limits=[WORKDAY_DOMAIN])
 
     sources: list[JobSource] = []
 

@@ -20,12 +20,18 @@ predictable from externalPath) and skipped before the detail fetch. The cap is
 then shared out across tenants so the first few in sources.yaml can't use all
 of it (ITEM-37: they did, every run, and the later tenants were never crawled).
 
-Tenants are crawled concurrently: each sits on its own host, so the Fetcher's
-per-host delay still spaces every tenant's requests, and the crawl takes as
-long as the slowest tenant rather than the sum of them all."""
+Tenants are crawled ONE AT A TIME, and the Fetcher paces every
+myworkdayjobs.com request through one queue (SHARED_LIMIT_DOMAIN). Workday's
+Cloudflare front judges a client across ALL tenants, not per tenant host:
+crawling the 13 tenants concurrently, each at a polite 1/s on its own host,
+got every one of them 429'd within a second and the client challenged as a bot
+on every tenant afterwards (2026-11-17). Don't parallelize this source.
+
+A posting whose detail call fails is left out, not stored without its
+description: stored postings are never fetched again, so storing it would
+lose the description for good. Left out, the next run retries it."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from ..models import RawJob
@@ -34,7 +40,7 @@ from .base import JobSource, fair_shares
 
 log = get_logger()
 PAGE = 20           # CXS list page size
-TENANT_WORKERS = 8  # tenants crawled at once
+SHARED_LIMIT_DOMAIN = "myworkdayjobs.com"  # every tenant host is under it
 _HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 
 # Workday's own vocabulary for the detail payload's remoteType -> ours.
@@ -115,25 +121,23 @@ class WorkdaySource(JobSource):
         fairly over each tenant's NEW postings, then only those are detail-
         fetched. Postings already stored don't count, so a share is spent only
         on new ones."""
-        if not self.tenants:
-            return []
-        workers = min(TENANT_WORKERS, len(self.tenants))
-        with ThreadPoolExecutor(max_workers=workers,
-                                thread_name_prefix="workday") as pool:
-            listed = list(pool.map(self._list_tenant, self.tenants))
-            shares = fair_shares([len(new) for new, _ in listed], self.cap)
-            crawled = list(pool.map(self._fetch_details, self.tenants,
-                                    [new for new, _ in listed], shares))
+        listed = [self._list_tenant(t) for t in self.tenants]
+        shares = fair_shares([len(new) for new, _ in listed], self.cap)
+        crawled = [self._fetch_details(t, new, share)
+                   for t, (new, _), share in zip(self.tenants, listed, shares)]
         jobs: list[RawJob] = []
         for t, (new, known), share, got in zip(self.tenants, listed, shares, crawled):
             if not _valid(t):
                 continue
             cxs = f"{t['tenant']}/{t['site']}"
+            failed = min(share, len(new)) - len(got)
+            note = f", {failed} failed (retried next run)" if failed else ""
             if share < len(new):
-                log.info("workday[%s]: %d new (share reached, %d more next run), "
-                         "%d stored skipped", cxs, len(got), len(new) - share, known)
+                log.info("workday[%s]: %d new (share reached, %d more next run)%s, "
+                         "%d stored skipped", cxs, len(got), len(new) - share, note, known)
             else:
-                log.info("workday[%s]: %d new, %d stored skipped", cxs, len(got), known)
+                log.info("workday[%s]: %d new%s, %d stored skipped",
+                         cxs, len(got), note, known)
             jobs.extend(got)
         log.info("%s: %d new jobs from %d boards (%d stored postings skipped)",
                  self.name, len(jobs), len(self.tenants),
@@ -179,8 +183,9 @@ class WorkdaySource(JobSource):
                     f"{base}/wday/cxs/{cxs}{ext}", headers=_HEADERS)
                 info = (detail or {}).get("jobPostingInfo") or {}
             except Exception as exc:
-                log.warning("workday[%s]: detail failed for %s: %s", cxs, ext, exc)
-                info = {}
+                log.warning("workday[%s]: detail failed for %s (not stored; the "
+                            "next run retries it): %s", cxs, ext, exc)
+                continue
             try:
                 loc = post.get("locationsText") or info.get("location") or ""
                 rtype = _remote_type(info.get("remoteType"), loc)

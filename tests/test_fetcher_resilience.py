@@ -207,6 +207,112 @@ def test_threads_on_one_host_stay_spaced():
     print("OK  threads sharing a host stay spaced")
 
 
+LEIDOS = "https://leidos.wd5.myworkdayjobs.com/wday/cxs/leidos/External/jobs"
+WORKDAY = ["myworkdayjobs.com"]
+
+
+def test_shared_limit_paces_hosts_as_one():
+    """2026-11-17: Workday counts requests across all tenants, so tenant hosts
+    under a shared-limit domain must queue together, not each at their own 1/s."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    slept: list[float] = []
+    f = _fetcher(handler, delay=1.0, shared_limits=WORKDAY)
+    real_sleep = base.time.sleep
+    base.time.sleep = slept.append
+    try:
+        f.get_json(URL)                                   # caci: sends at once
+        f.get_json(LEIDOS)                                # another tenant: must wait
+        f.get_json("https://api.lever.co/v0/postings/x")  # unrelated host: no wait
+    finally:
+        base.time.sleep = real_sleep
+    assert len(slept) == 1 and 0.5 < slept[0] <= 1.0, slept
+    print("OK  hosts under a shared limit are paced as one")
+
+
+def test_429_backs_off_and_holds_the_shared_limit():
+    """A 429 must wait far longer than a sick backend's 1s, and the wait must
+    hold every host under the same limit, not just the one that was refused."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(429 if calls["n"] == 1 else 200, json={})
+
+    slept: list[float] = []
+    f = _fetcher(handler, delay=1.0, shared_limits=WORKDAY)
+    real_sleep = base.time.sleep
+    base.time.sleep = slept.append
+    try:
+        f.get_json(URL)      # 429, then the retry succeeds
+        assert len(slept) == 1 and 4.5 < slept[0] <= 5.0, (
+            f"the retry should wait ~5s, waited {slept}")
+        f.get_json(LEIDOS)   # a sibling tenant queues behind the hold too
+        assert len(slept) == 2 and slept[1] > 5.0, slept
+    finally:
+        base.time.sleep = real_sleep
+    print("OK  a 429 backs off ~5s and holds the whole shared limit")
+
+
+def test_rate_limit_trips_the_shared_breaker():
+    """When Workday keeps refusing us, every tenant is skipped: they share the
+    limit, so each burning its own retries would only prolong the block."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(429)
+
+    f = _fetcher(handler, max_retries=1, host_fail_limit=2, shared_limits=WORKDAY)
+    for _ in range(2):
+        try:
+            f.get_json(URL)
+        except RuntimeError:
+            pass
+    try:
+        f.get_json(LEIDOS)
+        raise AssertionError("expected the sibling tenant to be skipped")
+    except RuntimeError as exc:
+        assert "marked down" in str(exc), exc
+    assert calls["n"] == 2, f"the skipped tenant still sent a request: {calls['n']}"
+
+    # Without a shared limit a 429 stays that host's own problem.
+    f = _fetcher(handler, max_retries=1, host_fail_limit=2)
+    for _ in range(2):
+        try:
+            f.get_json(URL)
+        except RuntimeError:
+            pass
+    assert f._host_is_down("caci.wd1.myworkdayjobs.com")
+    assert not f._host_is_down("leidos.wd5.myworkdayjobs.com")
+    print("OK  rate-limit refusals skip every host under the shared limit")
+
+
+def test_bot_challenge_stops_the_shared_limit_at_once():
+    """2026-11-17: once Cloudflare challenged the client, every Workday tenant
+    answered 429 + cf-mitigated. Retrying only keeps the flag up, so the first
+    challenge must end the run for every host under the shared limit."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(429, headers={"cf-mitigated": "challenge"},
+                              text="<!DOCTYPE html>")
+
+    f = _fetcher(handler, shared_limits=WORKDAY)
+    for url in (URL, URL, LEIDOS):
+        try:
+            f.get_json(url)
+            raise AssertionError("expected the challenge to raise")
+        except RuntimeError:
+            pass
+    assert calls["n"] == 1, f"a challenge must not be retried or re-sent: {calls['n']}"
+    assert f._host_is_down("leidos.wd5.myworkdayjobs.com")
+    assert not f._host_is_down("api.lever.co")
+    print("OK  a bot challenge is not retried and skips the whole shared limit")
+
+
 def test_client_stores_no_cookies():
     """The shared client's own jar refuses cookies, so one thread's response
     can't pin another thread's request to a backend."""
@@ -231,5 +337,9 @@ if __name__ == "__main__":
     test_client_error_still_fails_fast()
     test_host_delay_overrides_default()
     test_threads_on_one_host_stay_spaced()
+    test_shared_limit_paces_hosts_as_one()
+    test_429_backs_off_and_holds_the_shared_limit()
+    test_rate_limit_trips_the_shared_breaker()
+    test_bot_challenge_stops_the_shared_limit_at_once()
     test_client_stores_no_cookies()
     print("ALL FETCHER RESILIENCE CHECKS PASSED")

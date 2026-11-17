@@ -8,7 +8,6 @@ Run:  python tests/test_sources_parsing.py
 from __future__ import annotations
 
 import logging
-import threading
 import os
 import sys
 from collections import Counter
@@ -390,25 +389,28 @@ def test_workday_tenant_share():
     check(by == {"A": 1, "B": 2, "C": 3}, f"A 1, B 5//2, C the rest ({dict(by)})")
 
 
-def test_workday_tenants_concurrent():
-    print("== Workday: tenants are crawled at the same time ==")
-    boards = {t: [f"/job/Remote/{t}_0"] for t in ("a", "b", "c")}
+def test_workday_failed_detail_not_stored():
+    # 2026-11-17: 30 postings whose detail calls were refused got stored with
+    # no description, and stored postings are never fetched again.
+    print("== Workday: a posting whose detail call fails is left for the next run ==")
+    boards = {"a": [f"/job/Remote/a_{n}" for n in range(3)]}
     f = WorkdayFake(boards)
-    # Each tenant's one list call waits here until all three are in flight; a
-    # sequential crawl would time out, fail the search and return no jobs.
-    together = threading.Barrier(3, timeout=5)
-    listing = f.post_json
+    detail = f.get_json
 
-    def post_json(url, json_body, headers=None):
-        together.wait()
-        return listing(url, json_body, headers)
+    def get_json(url, params=None, headers=None):
+        if url.endswith("a_1"):
+            raise RuntimeError("HTTP 429")
+        return detail(url, params, headers)
 
-    f.post_json = post_json
-    jobs = WorkdaySource(f, cap=400, tenants=_wd_tenants("a", "b", "c"),
-                         searches=[""], per_search=25).fetch()
-    check([j.company for j in jobs] == ["A", "B", "C"],
-          f"all three crawled together, results in sources.yaml order "
-          f"({[j.company for j in jobs]})")
+    f.get_json = get_json
+    with _logged() as messages:
+        jobs = WorkdaySource(f, cap=400, tenants=_wd_tenants("a"), searches=[""],
+                             per_search=25).fetch()
+    check(sorted(j.url.rsplit("/", 1)[1] for j in jobs) == ["a_0", "a_2"],
+          f"the failed posting is not returned ({[j.url for j in jobs]})")
+    check(all(j.description_clean for j in jobs), "every returned job has a description")
+    check(any("1 failed (retried next run)" in m for m in messages),
+          "the tenant's log line counts the failure")
 
 
 def test_workday_known_skip():
@@ -866,6 +868,8 @@ def test_registry_configures_adzuna():
     check(az.fetcher.host_delays.get(adzuna.HOST) == adzuna.MIN_INTERVAL == 2.5,
           f"Fetcher spaces Adzuna calls ({az.fetcher.host_delays})")
 
+    check("myworkdayjobs.com" in az.fetcher.shared_limits,
+          f"Fetcher paces every Workday tenant as one host ({az.fetcher.shared_limits})")
     az = next(s for s in build_sources({"ats": {"adzuna": ["c#"]}}) if s.name == "adzuna")
     check(az.per_query == 500 and az.max_calls == 75,
           f"defaults 500/75 ({az.per_query}, {az.max_calls})")
@@ -887,7 +891,7 @@ def main() -> int:
     test_smartrecruiters()
     test_workday()
     test_workday_tenant_share()
-    test_workday_tenants_concurrent()
+    test_workday_failed_detail_not_stored()
     test_workday_known_skip()
     test_list_ats_board_share()
     test_list_ats_duplicates()

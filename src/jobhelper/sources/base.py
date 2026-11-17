@@ -29,19 +29,31 @@ class Fetcher:
     """Shared HTTP client with per-host throttling, retry/backoff and a breaker.
 
     Safe to share across threads: sources are fetched concurrently, and requests
-    to any one host stay spaced by its delay however many threads send them."""
+    to any one host stay spaced by its delay however many threads send them.
+
+    `shared_limits` names domains whose subdomains share ONE rate limit and so
+    are paced as a single host. Workday's Cloudflare front judges a client
+    across every tenant: the 13 tenants crawled at once, each politely 1/s on
+    its own host, were all answered 429 within a second (2026-11-17).
+
+    A Cloudflare bot challenge (`cf-mitigated: challenge`) is not retried and
+    takes the host, or its whole shared limit, out for the rest of the run:
+    once flagged, every further request is refused and only keeps the flag up."""
 
     def __init__(self, delay: float = 1.0, timeout: float = 30.0,
                  use_cache: bool = False, max_retries: int = 3,
                  host_fail_limit: int = 3,
-                 host_delays: dict[str, float] | None = None) -> None:
+                 host_delays: dict[str, float] | None = None,
+                 shared_limits: Sequence[str] = ()) -> None:
         self.delay = delay
+        self.shared_limits = tuple(shared_limits)
         # host -> minimum seconds between its requests, for hosts with a rate
         # limit stricter than `delay` (Adzuna: 25 hits/min, ITEM-40).
         self.host_delays = dict(host_delays or {})
         self.use_cache = use_cache
         self.max_retries = max_retries
         self.host_fail_limit = host_fail_limit
+        # Both keyed by host, or by its shared-limit domain (see _pace_key).
         self._last: dict[str, float] = {}
         self._fails: dict[str, int] = {}
         self._lock = threading.Lock()  # guards _last and _fails
@@ -57,34 +69,73 @@ class Fetcher:
     def close(self) -> None:
         self._client.close()
 
+    def _pace_key(self, host: str) -> str:
+        """What a rate limit is counted against: the host, or the shared-limit
+        domain it belongs to."""
+        for domain in self.shared_limits:
+            if host == domain or host.endswith("." + domain):
+                return domain
+        return host
+
+    def _delay(self, host: str) -> float:
+        return max(self.delay, self.host_delays.get(host, 0.0),
+                   self.host_delays.get(self._pace_key(host), 0.0))
+
     def _host_is_down(self, host: str) -> bool:
         with self._lock:
-            return self._fails.get(host, 0) >= self.host_fail_limit
+            return max(self._fails.get(host, 0),
+                       self._fails.get(self._pace_key(host), 0)) >= self.host_fail_limit
 
-    def _record(self, host: str, ok: bool) -> None:
-        """Track consecutive give-ups per host so one dead tenant can't eat the run."""
+    def _record(self, host: str, ok: bool, rate_limited: bool = False) -> None:
+        """Track consecutive give-ups so one dead tenant can't eat the run.
+
+        A dead backend is that host's problem, so it counts against the host.
+        A rate limit belongs to whatever the limit is counted against, so it
+        counts against the pace key: when Workday is refusing us, every tenant
+        is skipped rather than each burning its own retries to find that out."""
+        key = self._pace_key(host)
         with self._lock:
             if ok:
-                self._fails[host] = 0
+                self._fails[host] = self._fails[key] = 0
                 return
-            self._fails[host] = fails = self._fails.get(host, 0) + 1
+            name = key if rate_limited else host
+            self._fails[name] = fails = self._fails.get(name, 0) + 1
         if fails == self.host_fail_limit:
-            log.warning("%s: %d consecutive failures, skipping this host for the "
-                        "rest of the run", host, self.host_fail_limit)
+            log.warning("%s: %d consecutive %s, skipping it for the rest of the run",
+                        name, self.host_fail_limit,
+                        "rate-limit refusals" if rate_limited else "failures")
+
+    def _block(self, host: str) -> None:
+        """Open the breaker at once for this host or its whole shared limit."""
+        key = self._pace_key(host)
+        with self._lock:
+            already = self._fails.get(key, 0) >= self.host_fail_limit
+            self._fails[key] = self.host_fail_limit
+        if not already:
+            log.warning("%s is challenging this client as a bot (Cloudflare); "
+                        "skipping it for the rest of the run", key)
 
     def _throttle(self, url: str) -> None:
         """Wait for this host's next send slot. The slot is claimed under the
-        lock, so threads sharing a host queue up `delay` apart instead of all
-        sending at once; the sleep itself happens outside it."""
+        lock, so threads sharing a host (or a shared limit) queue up `delay`
+        apart instead of all sending at once; the sleep itself happens outside it."""
         host = urlsplit(url).netloc
-        delay = max(self.delay, self.host_delays.get(host, 0.0))
+        key, delay = self._pace_key(host), self._delay(host)
         with self._lock:
             now = time.monotonic()
-            last = self._last.get(host)
+            last = self._last.get(key)
             slot = now if last is None else max(now, last + delay)
-            self._last[host] = slot
+            self._last[key] = slot
         if slot > now:
             time.sleep(slot - now)
+
+    def _hold(self, host: str, wait: float) -> None:
+        """Rate limited: keep every thread off this host (or shared limit) for
+        `wait` seconds. The caller's own retry then queues behind the hold."""
+        key, delay = self._pace_key(host), self._delay(host)
+        with self._lock:
+            resume = time.monotonic() + wait - delay  # _throttle adds delay back
+            self._last[key] = max(self._last.get(key, resume), resume)
 
     def _cache_path(self, url: str, params: dict | None):
         key = stable_hash(url, json.dumps(params or {}, sort_keys=True))
@@ -111,6 +162,7 @@ class Fetcher:
             raise RuntimeError(f"{host} marked down this run, skipped: {url}")
 
         last_err: Exception | None = None
+        rate_limited = False  # did the last attempt end in a 429?
         for attempt in range(1, self.max_retries + 1):
             self._throttle(url)
             # Workday/Cloudflare pin a client to one backend instance via __cflb +
@@ -125,14 +177,22 @@ class Fetcher:
                     resp = self._client.post(url, json=json_body, headers=headers)
                 else:
                     resp = self._client.get(url, params=params, headers=headers)
+                if resp.headers.get("cf-mitigated") == "challenge":
+                    self._block(host)
+                    raise RuntimeError(f"{method} {url} -> HTTP {resp.status_code} "
+                                       "(Cloudflare bot challenge)")
                 if resp.status_code in _RETRY_STATUS:
                     last_err = RuntimeError(f"HTTP {resp.status_code}")
+                    rate_limited = resp.status_code == 429
                     if attempt == self.max_retries:
                         break
                     wait = _retry_after(resp, attempt)
                     log.warning("%s -> HTTP %s, retry %d/%d in %.1fs", url,
                                 resp.status_code, attempt, self.max_retries, wait)
-                    time.sleep(wait)
+                    if rate_limited:
+                        self._hold(host, wait)  # the retry's _throttle does the waiting
+                    else:
+                        time.sleep(wait)
                     continue
                 if resp.status_code >= 400:
                     # Non-retryable client error (e.g. 404 bad slug) — fail fast.
@@ -146,13 +206,14 @@ class Fetcher:
                 return data
             except (httpx.HTTPError, json.JSONDecodeError) as exc:
                 last_err = exc
+                rate_limited = False
                 if attempt == self.max_retries:
                     break
                 wait = 2 ** (attempt - 1)
                 log.warning("%s -> %s, retry %d/%d in %.0fs", url, exc,
                             attempt, self.max_retries, wait)
                 time.sleep(wait)
-        self._record(host, False)
+        self._record(host, False, rate_limited)
         raise RuntimeError(f"{method} failed after {self.max_retries} tries: "
                            f"{url} ({last_err})") from last_err
 
@@ -175,7 +236,11 @@ def fair_shares(sizes: Sequence[int], cap: int) -> list[int]:
 def _retry_after(resp: httpx.Response, attempt: int) -> float:
     ra = resp.headers.get("Retry-After")
     if ra and ra.isdigit():
-        return min(float(ra), 30.0)
+        return min(float(ra), 60.0)
+    if resp.status_code == 429:
+        # A rate limit needs real time to clear: the 1s and 2s used for a sick
+        # backend were both refused again on 2026-11-17.
+        return float(5 * 3 ** (attempt - 1))  # 5s, 15s
     return float(2 ** (attempt - 1))
 
 
